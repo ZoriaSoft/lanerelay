@@ -31,13 +31,15 @@ devir notuyla bir sonraki hatta geçer.
 | `qp run --resume <id>` | Kesilmiş/hatalı/engelli bir koşuyu devam ettir (id'ler `qp report`'ta). Sıradaki hat tüm deneme geçmişini devir notu olarak alır. |
 | `qp run --no-wait` | Tüm hatlar engelliyken uyumak yerine çık. |
 | `qp run --diff none\|stat\|full` | Devir istemine ne kadar çalışma ağacı bilgisi girsin (varsayılan `stat`; `full` sınırlı `git diff` yamasını gömer). |
-| `qp status` | Hat başına `available` / `blocked until HH:MM` / `unknown`, artı devam ettirilebilir koşular (`--json`). |
+| `qp status` | Hat başına `available` / `blocked until HH:MM` / `unknown`, `[leased by <koşu>]` paralel kilit bilgisiyle, artı devam ettirilebilir koşular (`--json`). |
+| `qp top` | Canlı pano: hat başına engel geri sayımı, kota göstergeleri, hangi görev hangi hatta, kuyruk derinliği, devam ettirilebilir koşular. `--interval <s>`, `--once` / boru hattında tek kare, `q` çıkar. |
 | `qp probe <hat>` / `qp probe --all` | Hatta küçük bir deneme istemi gönderir: `available`, `limited` (gerçek sıfırlanma zamanını state'e yazar), `auth-error` (bozuk anahtar/plan — 24s engeller), `error`, `timeout`. `--prompt`, `--timeout <s>`, `--json`. |
 | `qp report` | Koşu geçmişi: hat başına deneme istatistikleri (done/limited/failed/timeout), kuyruk sonuçları, devam ettirilebilir koşular (`--json`). |
 | `qp add "görev"` | İzleyici için görevi kuyruğa ekle. |
 | `qp queue` | Bekleyen / çalışan / biten / hatalı öğeleri listele (koşu kaydı id'siyle). |
 | `qp watch` | Daemon: kuyruğu tüket (`--once` boşalınca çıkar, `--poll N`). `--jobs N` aynı anda N görev koşturur, her biri *farklı* hatta (`.qp/leases/` altında hat başına kilit); config'te `queue.jobs` aynı işi yapar. Çıktılar karışır — `-q` kullanıp `.qp/logs/`'a bakın. |
 | `qp prune [--days N]` | N günden eski koşu kayıtlarını sil (varsayılan 30). |
+| `qp unblock [hat]` | Hattın engelli durumunu elle temizle. |
 
 ## Nasıl çalışır
 

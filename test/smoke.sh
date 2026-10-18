@@ -307,7 +307,11 @@ else
   pass "handoff diff modes (skipped: no git)"
 fi
 
- printf 'all smoke checks passed\n'
-
+# --- 10. qp top --once renders one frame ----------------------------------
+$QP top --once >top.out 2>&1 || fail "top --once exit code"
+contains top.out 'qp top' "top header"
+contains top.out 'LANES' "top lane section"
+contains top.out 'queue:' "top queue line"
+pass "top --once"
 
 printf 'all smoke checks passed\n'

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { Command, Option } from 'commander';
 import { ConfigError, DEFAULTS, findConfigFile, loadConfig, orderLanes, resolveLane } from './config.js';
 import { initConfig } from './init.js';
@@ -12,6 +12,7 @@ import { buildReport, formatReport } from './report.js';
 import { pidAlive, RunStore, type RunRecord } from './runs.js';
 import { LaneStore } from './state.js';
 import { formatStatus, laneStatuses } from './status.js';
+import { runTop, topSnapshot } from './top.js';
 import type { AttemptResult, Config, Lane, TaskVerdict } from './types.js';
 
 interface Ctx {
@@ -141,7 +142,7 @@ const program = new Command();
 program
   .name('qp')
   .description('Run one coding task across several AI agent CLIs; quota-limit hits hand the task to the next lane.')
-  .version('0.5.0')
+  .version('0.6.0')
   .option('--config <path>', 'path to quota-pilot.yaml');
 
 program
@@ -263,6 +264,56 @@ program
         console.log(`  ${r.id}  ${how}  ${r.task.slice(0, 60)}`);
       }
     }
+  });
+
+program
+  .command('top')
+  .description('live dashboard: lane reset countdowns, running tasks, queue depth (q to quit)')
+  .option('--interval <seconds>', 'refresh interval', (v) => parseFloat(v), 1)
+  .option('--once', 'draw a single frame and exit (always the case when piped)')
+  .action(async (opts: { interval: number; once?: boolean }, cmd: Command) => {
+    const cwd = process.cwd();
+    const ctx = loadCtx(cwd, cmd.optsWithGlobals().config);
+    if (!Number.isFinite(opts.interval) || opts.interval <= 0) {
+      process.stderr.write('qp: --interval must be a positive number of seconds\n');
+      process.exitCode = 1;
+      return;
+    }
+    const lock = join(cwd, '.qp', 'watch.lock');
+    const collect = () => {
+      const q = new TaskQueue(ctx.queueDir);
+      let watcherPid: number | null = null;
+      try {
+        const pid = parseInt(readFileSync(lock, 'utf8'), 10);
+        if (pid && pidAlive(pid)) watcherPid = pid;
+      } catch {
+        /* no lockfile or unreadable → no watcher */
+      }
+      const records = ctx.runs.list();
+      return {
+        repo: basename(cwd),
+        snap: topSnapshot({
+          lanes: orderLanes(ctx.cfg, undefined, ctx.store),
+          store: ctx.store,
+          leased: existsSync(ctx.leasesDir) ? new LeaseSet(ctx.leasesDir).heldLanes() : {},
+          records,
+          queue: {
+            pending: q.list('pending'),
+            running: q.list('running'),
+            done: q.list('done'),
+            failed: q.list('failed'),
+          },
+          isResumable: (r: RunRecord) => ctx.runs.resumable(r),
+          watcherPid,
+        }),
+      };
+    };
+    await runTop({
+      collect,
+      intervalMs: opts.interval * 1000,
+      once: opts.once,
+      io: { out: process.stdout, inp: process.stdin },
+    });
   });
 
 program

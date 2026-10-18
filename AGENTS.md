@@ -28,6 +28,7 @@ src/
   runs.ts        .qp/runs/<id>.json — RunRecord per task execution, resume source
   report.ts      qp report aggregation (lanes / queue / resumable / recent)
   status.ts      lane status rows
+  top.ts         qp top dashboard: pure topSnapshot/formatTop + ANSI loop
   init.ts        `qp init` starter config
 test/            vitest; detect.test.ts holds the pattern fixtures
 ```

@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 0.6.0 — 2026-10-18 (round 6)
+
+### Added
+
+- **`qp top`** — live dashboard on the alternate screen: per-lane status
+  with second-precision blocked countdowns, cost class, quota gauges and
+  lease owners; running tasks on their leased lanes; queue depth plus the
+  next pending items; resumable runs as copy-paste commands; watcher pid.
+  Raw ANSI, no new dependencies. `--interval <s>` (default 1), `q`/Ctrl-C
+  quits, `--once` or any non-TTY stdout draws a single frame.
+
+### Fixed
+
+- `test/smoke.sh` printed its final line twice (duplicate `printf`).
+
 ## 0.5.0 — 2026-10-18 (round 5)
 
 ### Added

@@ -93,6 +93,7 @@ qp run "task"
 | `qp run --no-wait "task"` | Exit 2 instead of sleeping when every lane is blocked. |
 | `qp run --diff none\|stat\|full` | Control how much working-tree state goes into the handoff prompt (default `stat`; `full` embeds the bounded `git diff` patch). |
 | `qp status` | `available` / `blocked until HH:MM (Nm)` / `unknown` per lane, `[leased by <run>]` when a parallel run holds it, plus unfinished/resumable runs (`--json`). |
+| `qp top` | Live dashboard: per-lane blocked countdowns, quota gauges, running tasks on their lanes, queue depth, resumable runs. `--interval <s>`, `--once` / piped = single frame, `q` quits. |
 | `qp probe <lane>` / `qp probe --all` | Send a tiny prompt to a lane and classify it: `available`, `limited` (learns the real reset time into state), `auth-error` (bad key/plan — blocked 24h so the watcher won't spin), `error`, `timeout`. Costs a little quota; exit 2 when any lane is limited/auth-error. `--prompt`, `--timeout <s>`, `--json`. |
 | `qp report` | Run history: per-lane attempt stats (done/limited/failed/timeout), queue outcomes, resumable runs, recent runs (`--json`). |
 | `qp add "task"` | Enqueue a task for the watcher. |

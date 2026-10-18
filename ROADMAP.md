@@ -87,6 +87,15 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
 - [x] `qp watch --once` now drains the whole queue before exiting (was:
       one item).
 
+## Done (round 6)
+
+- [x] **`qp top`**: live dashboard (alt screen, raw ANSI, no deps) —
+      per-lane blocked countdowns, quota gauges, lease owners, running
+      tasks on their lanes, queue depth + next pending, resumable runs,
+      watcher pid. `--interval`, `--once`/piped → single frame, `q` quits.
+      Rendering is split into pure `topSnapshot`/`formatTop` (8 tests) and
+      a thin TTY loop.
+
 ## Next (priority order)
 
 1. [x] **Real-CLI fidelity pass** (partial, r2): codex/claude/gemini strings
@@ -106,8 +115,8 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
 6. [x] **Parallel watch** (r5): `--jobs N`/`queue.jobs`, per-lane file
        leases shared with `qp run`. Follow-up: per-chain lane sets when a
        task is pinned to a subset.
-7. [ ] TUI `qp top`: live lane grid (blocked countdowns, running task,
-       queue depth). Consider blessed or raw ANSI — weigh dep cost.
+7. [x] TUI `qp top` (r6): shipped with raw ANSI, zero deps. Follow-up:
+       `top --jobs`-style per-worker view, key to open the latest log file.
 8. [ ] Homebrew/standalone binary packaging (bun compile or pkg) so non-Node
        users get `qp` without npm.
 
