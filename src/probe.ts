@@ -98,7 +98,7 @@ export async function probeLane(
     lane: lane.name,
     exitCode: result.exitCode,
     durationMs: result.durationMs,
-    quotaLeft: usage?.pctLeft ?? null,
+    quotaLeft: usage ? Math.min(...usage.map((r) => r.pctLeft)) : null,
   };
 
   if (result.timedOut) {

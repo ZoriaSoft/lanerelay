@@ -67,9 +67,13 @@ qp run "task"
   don't redo it" + `git diff --stat` + tails of previous attempts. The next
   agent continues in the same working tree — changes are shared, not copied.
 - **Lane order** = cost class (paid first) → observed quota remaining →
-  priority. When a CLI prints a usage gauge ("usage: 72%", "12% of your
-  weekly quota left"), qp remembers it (24h staleness) and prefers the lane
-  least likely to die mid-task. Explicit `--chain` order always wins.
+  priority. When a CLI prints usage gauges ("usage: 72%", "12% of your
+  weekly quota left"), qp tracks each quota window separately
+  (session/daily/weekly/monthly) and orders on the *poorest* fresh
+  reading — a lane at "session 90%" is still skipped when its weekly cap
+  sits at 3%. Readings expire on their window's own TTL (session 8h,
+  daily 36h, weekly 9d, monthly 35d, unlabeled 24h). Explicit `--chain`
+  order always wins.
 - **Logs** for every attempt land in `.qp/logs/` regardless of `--quiet`.
 - **Run records** land in `.qp/runs/<id>.json`, rewritten after every
   attempt. If `qp` is killed mid-task (Ctrl+C, OOM, power), the record is
@@ -95,13 +99,14 @@ qp run "task"
 | `qp status` | `available` / `blocked until HH:MM (Nm)` / `unknown` per lane, `[leased by <run>]` when a parallel run holds it, plus unfinished/resumable runs (`--json`). |
 | `qp top` | Live dashboard: per-lane blocked countdowns, quota gauges, running tasks on their lanes, queue depth, resumable runs. `--interval <s>`, `--once` / piped = single frame, `q` quits. |
 | `qp probe <lane>` / `qp probe --all` | Send a tiny prompt to a lane and classify it: `available`, `limited` (learns the real reset time into state), `auth-error` (bad key/plan — blocked 24h so the watcher won't spin), `error`, `timeout`. Costs a little quota; exit 2 when any lane is limited/auth-error. `--prompt`, `--timeout <s>`, `--json`. |
-| `qp report` | Run history: per-lane attempt stats (done/limited/failed/timeout), queue outcomes, resumable runs, recent runs (`--json`). `qp report --lane <name>` drills into one lane: every recorded attempt with evidence and log refs. |
-| `qp add "task"` | Enqueue a task for the watcher. |
+| `qp report` | Run history: per-lane attempt stats (done/limited/failed/timeout), queue outcomes, resumable runs, recent runs (`--json`, `--jsonl` streams one record per line). `qp report --lane <name>` drills into one lane: every recorded attempt with evidence and log refs. |
+| `qp add "task"` | Enqueue a task for the watcher. `qp add --file tasks.txt` (or `-` for stdin) enqueues one task per line — blank lines and `#` comments are skipped. |
 | `qp queue` | List pending / running / done / failed items (with the run record id). |
 | `qp watch` | Daemon: drain the queue (`--once` exits when empty, `--poll N`). `--jobs N` runs up to N tasks at once, each on a *different* lane (per-lane leases in `.qp/leases/`); `queue.jobs` in config does the same. A task that finds every lane blocked is **deferred**, not failed: it goes back to pending until the earliest lane reset (`queue.maxDefers`, default 10). Outputs interleave — use `-q` and `qp log`. |
 | `qp log [selector]` | Tail a lane attempt log from `.qp/logs` (last 200 lines). Selector: run id prefix (`qp log r-abc1`), queue item id, lane name (`qp log claude`), or filename fragment; no selector = newest log. `--lines/-n` (0 = whole file), `--follow/-f` (live tail), `--list` (recent files). |
 | `qp prune [--days N]` | Delete run records older than N days (default 30). |
 | `qp unblock [lane]` | Clear a lane's blocked state manually. |
+| `qp doctor` | Preflight: config parses, every lane's executable resolves (PATH or disk), `{{prompt}}` slot present, `.qp` dirs writable, state file valid, watcher lock and lane leases not stale. `--json`; exit 1 on any FAIL. |
 
 ## Configuration (`quota-pilot.yaml`)
 
@@ -175,8 +180,10 @@ exported on POSIX, so wrapper scripts can read it instead of the argv slot.
 - Resume is task-text-locked: `qp run --resume <id>` continues the *recorded*
   task (pass a different task text and it's refused). A finished or
   already-resumed run can't be resumed again.
-- Usage gauges are only honored when a lane prints one. Readings older than
-  24h are ignored (windows reset), and `qp unblock` clears the gauge too.
+- Usage gauges are only honored when a lane prints one. Each window's
+  reading expires on its own TTL (session 8h, daily 36h, weekly 9d,
+  monthly 35d, unlabeled 24h) since windows reset; `qp unblock` clears the
+  gauges too.
 
 ## Development
 

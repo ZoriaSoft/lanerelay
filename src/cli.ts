@@ -3,6 +3,7 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, rmSync, statSy
 import { basename, join } from 'node:path';
 import { Command, Option } from 'commander';
 import { ConfigError, DEFAULTS, findConfigFile, loadConfig, orderLanes, resolveLane } from './config.js';
+import { doctorChecks, formatDoctor } from './doctor.js';
 import { initConfig } from './init.js';
 import { runTask, type OrchestrateOptions } from './orchestrate.js';
 import { LeaseSet } from './leases.js';
@@ -143,7 +144,7 @@ const program = new Command();
 program
   .name('qp')
   .description('Run one coding task across several AI agent CLIs; quota-limit hits hand the task to the next lane.')
-  .version('0.7.0')
+  .version('0.8.0')
   .option('--config <path>', 'path to quota-pilot.yaml');
 
 program
@@ -347,8 +348,13 @@ program
   .description('run history: per-lane attempt stats, queue outcomes, resumable runs')
   .option('--lane <name>', 'drill into one lane: every recorded attempt with log refs')
   .addOption(new Option('--json', 'machine-readable output'))
-  .action((opts: { lane?: string; json?: boolean }, cmd: Command) => {
+  .addOption(new Option('--jsonl', 'one JSON object per run record (streaming export)'))
+  .action((opts: { lane?: string; json?: boolean; jsonl?: boolean }, cmd: Command) => {
     const ctx = loadCtx(process.cwd(), cmd.optsWithGlobals().config);
+    if (opts.jsonl) {
+      for (const rec of ctx.runs.list()) console.log(JSON.stringify(rec));
+      return;
+    }
     if (opts.lane !== undefined) {
       const detail = laneReport(ctx.runs.list(), opts.lane);
       console.log(opts.json ? JSON.stringify(detail, null, 2) : formatLaneReport(detail));
@@ -376,13 +382,36 @@ program
 
 program
   .command('add')
-  .argument('<task...>', 'task description')
+  .argument('[task...]', 'task description (omit with --file)')
   .option('-c, --chain <chain>', 'chain override for this task')
+  .option('-f, --file <path>', 'enqueue one task per line from a file ("-" = stdin); blank lines and # comments skipped')
   .description('enqueue a task for `qp watch`')
-  .action((taskParts: string[], opts: { chain?: string }, cmd: Command) => {
+  .action((taskParts: string[], opts: { chain?: string; file?: string }, cmd: Command) => {
     const ctx = loadCtx(process.cwd(), cmd.optsWithGlobals().config);
-    const item = new TaskQueue(ctx.queueDir).add(taskParts.join(' '), opts.chain);
-    console.log(`queued ${item.id}`);
+    const q = new TaskQueue(ctx.queueDir);
+    if (opts.file !== undefined) {
+      const raw = opts.file === '-' ? readFileSync(0, 'utf8') : readFileSync(opts.file, 'utf8');
+      const tasks = raw
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l !== '' && !l.startsWith('#'));
+      if (tasks.length === 0) {
+        process.stderr.write('qp: --file contained no tasks\n');
+        process.exitCode = 1;
+        return;
+      }
+      for (const task of tasks) {
+        console.log(`queued ${q.add(task, opts.chain).id}`);
+      }
+      return;
+    }
+    const task = taskParts.join(' ').trim();
+    if (task === '') {
+      process.stderr.write('qp: give a task or use --file <path>\n');
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`queued ${q.add(task, opts.chain).id}`);
   });
 
 program
@@ -664,6 +693,23 @@ program
     console.log(`wrote ${res.configPath}${res.gitignoreNote ? ` (${res.gitignoreNote})` : ''}`);
     console.log('edit the lane commands, then: qp run "your task"');
   });
+program
+  .command('doctor')
+  .description('preflight: config, lane executables, writable dirs, git, state/lease hygiene')
+  .addOption(new Option('--json', 'machine-readable output'))
+  .action((opts: { json?: boolean }, cmd: Command) => {
+    const checks = doctorChecks({
+      cwd: process.cwd(),
+      configFlag: cmd.optsWithGlobals().config,
+    });
+    if (opts.json) {
+      console.log(JSON.stringify(checks, null, 2));
+    } else {
+      console.log(formatDoctor(checks));
+    }
+    if (checks.some((c) => c.status === 'fail')) process.exitCode = 1;
+  });
+
 
 
 program.parseAsync().catch((e) => {

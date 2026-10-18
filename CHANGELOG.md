@@ -1,5 +1,36 @@
 # CHANGELOG
 
+## 0.8.0 — 2026-10-18 (round 8)
+
+### Added
+
+- **`qp doctor`** — preflight for a repo: does `quota-pilot.yaml` parse,
+  does every lane's first executable resolve (PATH, PATHEXT on Windows, or
+  a file path), does the command carry the `{{prompt}}` slot, are the
+  `.qp` dirs writable, is `state.json` valid JSON, is the watcher lock or
+  any lane lease held by a dead pid. `ok`/`warn`/`FAIL` lines or `--json`;
+  exits 1 when any check FAILs.
+- **Per-window quota gauges.** Lanes that print more than one gauge (e.g.
+  Claude's session + weekly statusline) no longer collapse to "last one
+  wins". `detectUsage` returns one reading per window — inferred from
+  keywords on the gauge line (weekly/monthly/daily/session) or pinned by
+  a `(?<window>…)` named group in a lane's `usage`/`usageUsed` patterns.
+  `.qp/state.json` keeps the freshest reading per window (legacy
+  single-reading files migrate to `other`), lane ordering picks the
+  *poorest* fresh window, and each window expires on its own TTL
+  (session 8h, daily 36h, weekly 9d, monthly 35d, unlabeled 24h) instead
+  of a flat 24h. `qp status`/`qp top` render `(session 90% · weekly 12%
+  quota)`; `qp probe` still reports the effective (minimum) `quotaLeft`.
+- **`qp report --jsonl`** — streams one run record per line for piping
+  into `jq`/`duckdb`; `--json` still emits the aggregated report.
+- **`qp add --file <path>`** — enqueues one task per line (`-` reads
+  stdin; blank lines and `#` comments skipped). Bare `qp add` now exits 1
+  with a hint instead of queueing an empty task.
+
+### Fixed
+
+- `package.json` version now tracks the CLI version (0.8.0).
+
 ## 0.7.0 — 2026-10-18 (round 7)
 
 ### Added

@@ -2,7 +2,7 @@ import type { LaneLease } from './leases.js';
 import type { QueueItem } from './queue.js';
 import type { RunRecord } from './runs.js';
 import type { LaneStore } from './state.js';
-import { laneStatuses, type LaneStatusRow } from './status.js';
+import { formatQuota, laneStatuses, type LaneStatusRow } from './status.js';
 import type { Lane } from './types.js';
 
 /** Everything `qp top` draws on one refresh. */
@@ -139,7 +139,7 @@ export function formatTop(snap: TopSnapshot, opts: FormatOpts = {}): string {
   }
   for (const r of snap.lanes) {
     const cost = (snap.cost[r.name] ?? '?').padEnd(4);
-    const quota = r.quotaLeft !== undefined ? `  ${r.quotaLeft}% quota` : '';
+    const quota = formatQuota(r, '  ');
     const lease = r.leasedBy ? `  [leased by ${r.leasedBy}]` : '';
     const prefix = `  ${r.name.padEnd(14)} ${r.kind.padEnd(9)} ${cost} `;
     if (r.status === 'blocked' && r.until) {

@@ -20,8 +20,9 @@ src/
   runner.ts      spawn + tee + ring-buffer tail + per-attempt logs (QP_PROMPT
                  env; cmd /c on Windows)
   prompt.ts      handoff prompt composer; git.ts: diff summary + bounded patch
-  state.ts       .qp/state.json — lane blockedUntil + usage gauge, atomic
-                 writes, mtime-refresh for concurrent qp processes
+  state.ts       .qp/state.json — lane blockedUntil + per-window usage
+                 gauges, atomic writes, mtime-refresh so concurrent qp
+                 processes see each other's blocks
   leases.ts      .qp/leases/<lane>.json per-lane mutex for parallel runs
   queue.ts       .qp/queue/{pending,running,done,failed}/*.json, atomic claim
                  + defer() — all-blocked tasks wait in pending/ with a
@@ -33,6 +34,9 @@ src/
   status.ts      lane status rows
   top.ts         qp top dashboard: pure topSnapshot/formatTop + ANSI loop
   init.ts        `qp init` starter config
+  doctor.ts      `qp doctor` — preflight checks: config parses, lane
+                 executables resolve, .qp dirs writable, state valid,
+                 stale watch-lock/leases flagged
 test/            vitest; detect.test.ts holds the pattern fixtures
 ```
 

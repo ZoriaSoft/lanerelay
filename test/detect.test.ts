@@ -273,42 +273,75 @@ describe('parseResetTime', () => {
 });
 
 describe('detectUsage', () => {
-  const use = (kind: LaneKind, output: string) => detectUsage(output, mergePatterns(kind));
+  /** First (or only) reading's pctLeft for the given window; 'other' default. */
+  const use = (kind: LaneKind, output: string, window = 'other') =>
+    detectUsage(output, mergePatterns(kind))?.find((r) => r.window === window)?.pctLeft;
 
   it('reads "usage: NN%" as percent used', () => {
-    expect(use('claude', 'session usage: 72%')?.pctLeft).toBe(28);
-    expect(use('gemini', 'quota=40%')?.pctLeft).toBe(60);
+    expect(use('claude', 'session usage: 72%', 'session')).toBe(28);
+    expect(use('gemini', 'quota=40%')).toBe(60);
   });
 
   it('reads explicit remaining/left forms', () => {
-    expect(use('codex', '12% of your weekly quota left')?.pctLeft).toBe(12);
-    expect(use('claude', 'session usage 3% remaining')?.pctLeft).toBe(3);
+    expect(use('codex', '12% of your weekly quota left', 'weekly')).toBe(12);
+    expect(use('claude', 'session usage 3% remaining', 'session')).toBe(3);
   });
 
   it('reads used-of-quota forms', () => {
-    expect(use('codex', 'used 40% of your quota')?.pctLeft).toBe(60);
-    expect(use('glm', '85% of the daily limit used')?.pctLeft).toBe(15);
+    expect(use('codex', 'used 40% of your quota')).toBe(60);
+    expect(use('glm', '85% of the daily limit used', 'daily')).toBe(15);
   });
 
-  it('prefers the last reading when the gauge moves', () => {
+  it('prefers the last reading per window when the gauge moves', () => {
     const out = 'usage: 60%\nworking…\nusage: 97%';
-    expect(use('claude', out)?.pctLeft).toBe(3);
+    expect(use('claude', out)).toBe(3);
+  });
+
+  it('keeps session and weekly gauges separate (claude statusline)', () => {
+    const out =
+      'Session usage 90% remaining\nWeekly quota: 12% left\n';
+    const readings = detectUsage(out, mergePatterns('claude'));
+    expect(readings?.map((r) => [r.window, r.pctLeft])).toEqual([
+      ['session', 90],
+      ['weekly', 12],
+    ]);
+  });
+
+  it('tracks each window independently across updates', () => {
+    const out =
+      'session usage 80% remaining\nweekly 50% left\nsession usage 30% remaining';
+    const readings = detectUsage(out, mergePatterns('claude'));
+    // session moved → last wins; weekly untouched
+    expect(readings?.map((r) => [r.window, r.pctLeft])).toEqual([
+      ['session', 30],
+      ['weekly', 50],
+    ]);
+  });
+
+  it('honors a custom pattern that pins the window by name', () => {
+    const pats = mergePatterns('custom', {
+      usage: ['(?<window>weekly) allowance (\\d+)% left'],
+    });
+    const readings = detectUsage('weekly allowance 40% left', pats);
+    expect(readings).toEqual([
+      { window: 'weekly', pctLeft: 40, evidence: 'weekly allowance 40% left' },
+    ]);
   });
 
   it('ignores percentages that are not usage gauges', () => {
-    expect(use('claude', 'coverage: 80%\nprogress 45%\nI am 100% done')).toBeNull();
-    expect(use('claude', 'usage limit reached')).toBeNull();
-    expect(use('claude', '')).toBeNull();
+    expect(detectUsage('coverage: 80%\nprogress 45%\nI am 100% done', mergePatterns('claude'))).toBeNull();
+    expect(detectUsage('usage limit reached', mergePatterns('claude'))).toBeNull();
+    expect(detectUsage('', mergePatterns('claude'))).toBeNull();
   });
 
   it('clamps out-of-range percentages', () => {
-    expect(use('claude', 'usage: 140%')?.pctLeft).toBe(0);
+    expect(use('claude', 'usage: 140%')).toBe(0);
   });
 
   it('honors per-lane usage patterns', () => {
     const pats = mergePatterns('custom', { usage: ['window=(\\d+)%'] });
-    expect(detectUsage('stats window=66% done', pats)?.pctLeft).toBe(66);
+    expect(detectUsage('stats window=66% done', pats)?.[0].pctLeft).toBe(66);
     const used = mergePatterns('custom', { usageUsed: ['burned (\\d+) pct'] });
-    expect(detectUsage('telemetry: burned 30 pct', used)?.pctLeft).toBe(70);
+    expect(detectUsage('telemetry: burned 30 pct', used)?.[0].pctLeft).toBe(70);
   });
 });

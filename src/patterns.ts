@@ -78,6 +78,9 @@ const GENERIC: KindPatterns = {
     // "<n>% of your (weekly )?quota left", "<n>% usage remaining" — filler
     // words (adjectives) allowed between the percent and the anchor word.
     re(String.raw`(\d{1,3})\s*%[^\d\n%]{0,30}?(?:usage|quota|window|allowance|requests?)[^\d\n%]{0,20}?(?:left|remain)`),
+    // "<window> <n>% left": "weekly 50% left", "session 30% remaining" —
+    // a window word alone makes the bare percent safe to read.
+    re(String.raw`\b(?:session|weekly|daily|monthly)\b[^\d\n%]{0,10}?(\d{1,3})\s*%\s*(?:left|remain)`),
   ],
   usageUsed: [
     // "usage: <n>%", "quota=<n>%" — bare percent right after the word means

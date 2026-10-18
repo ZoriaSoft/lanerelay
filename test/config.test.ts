@@ -215,4 +215,38 @@ describe('LaneStore', () => {
     fresh.unblock('a');
     expect(fresh.quotaLeft('a')).toBeNull();
   });
+  it('stores per-window gauges and orders on the poorest fresh window', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qp-state-'));
+    tmp.push(dir);
+    const store = new LaneStore(join(dir, 'state.json'));
+    store.markUsage('a', [
+      { pctLeft: 90, window: 'session', evidence: 'session 90%' },
+      { pctLeft: 12, window: 'weekly', evidence: 'weekly 12% left' },
+    ]);
+    expect(store.quotaLeft('a')).toBe(12);
+    expect(store.usageReadings('a').map((o) => o.window)).toEqual(['session', 'weekly']);
+    // a new reading updates only its own window
+    store.markUsage('a', { pctLeft: 40, window: 'weekly', evidence: 'weekly 40% left' });
+    expect(store.quotaLeft('a')).toBe(40);
+    // session TTL (8h) passes while weekly (9d) survives
+    const later = new Date(Date.now() + 10 * 3_600_000);
+    expect(store.usageReadings('a', later).map((o) => o.window)).toEqual(['weekly']);
+    expect(store.quotaLeft('a', later)).toBe(40);
+  });
+
+  it('reads legacy single-gauge state files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qp-state-'));
+    tmp.push(dir);
+    const path = join(dir, 'state.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 1,
+        lanes: { a: { usage: { pctLeft: 30, observedAt: new Date().toISOString(), evidence: 'e' } } },
+      }),
+    );
+    const store = new LaneStore(path);
+    expect(store.quotaLeft('a')).toBe(30);
+    expect(store.usageReadings('a')[0].window).toBe('other');
+  });
 });

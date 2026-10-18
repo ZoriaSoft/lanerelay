@@ -392,4 +392,50 @@ lanes:
 EOF
 pass "queue.maxDefers validation"
 
+# --- 13. qp doctor / add --file / report --jsonl ---------------------------
+$QP doctor >doc.out 2>&1 || fail "doctor exit code"
+contains doc.out 'config' "doctor reports config check"
+contains doc.out 'lane hero: executable' "doctor resolves lane executable"
+contains doc.out 'runtime dirs' "doctor checks runtime dirs"
+$QP doctor --json | grep -q '"status": "ok"' || fail "doctor --json"
+pass "qp doctor"
+
+# doctor must FAIL a lane whose executable is missing
+cat > quota-pilot.yaml <<EOF
+lanes:
+  - name: ghost
+    kind: custom
+    command: "ghost-cli-zzz {{prompt}}"
+EOF
+if $QP doctor >docbad.out 2>&1; then fail "doctor accepted missing executable"; fi
+contains docbad.out 'FAIL' "doctor prints FAIL tag"
+contains docbad.out 'ghost-cli-zzz' "doctor names the missing executable"
+# restore working config
+cat > quota-pilot.yaml <<EOF
+lanes:
+  - name: hero
+    kind: custom
+    command: "sh $WORK/hero.sh {{prompt}}"
+    cost: free
+    priority: 0
+EOF
+
+printf 'first job\n# comment\n\nsecond job\n' > tasks.txt
+$QP add --file tasks.txt >addfile.out 2>&1 || fail "add --file exit code"
+ADDN=$(grep -c '^queued ' addfile.out)
+[ "$ADDN" = "2" ] || fail "add --file queued $ADDN tasks, want 2"
+$QP queue >queue4.out 2>&1
+contains queue4.out 'first job' "file task 1 queued"
+contains queue4.out 'second job' "file task 2 queued"
+printf 'piped task\n' | $QP add --file - >addstdin.out 2>&1 || fail "add --file - exit code"
+contains addstdin.out 'queued' "stdin task queued"
+if $QP add >addempty.out 2>&1; then fail "empty add accepted"; fi
+contains addempty.out 'give a task or use --file' "empty add message"
+pass "qp add --file"
+
+$QP report --jsonl >report.jsonl 2>&1 || fail "report --jsonl exit code"
+head -1 report.jsonl | grep -q '"id"' || fail "jsonl first line is not a record"
+if head -1 report.jsonl | grep -q '^\['; then fail "jsonl leaked an array"; fi
+pass "qp report --jsonl"
+
 printf 'all smoke checks passed\n'

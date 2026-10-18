@@ -207,21 +207,58 @@ function scanReset(outputTail: string, patterns: KindPatterns, now: Date): Date 
   return null;
 }
 
+export type QuotaWindow = 'session' | 'daily' | 'weekly' | 'monthly' | 'other';
+
 export interface UsageReading {
   /** Percentage of quota REMAINING (0–100). */
   pctLeft: number;
+  /** Which quota window this gauge describes. */
+  window: QuotaWindow;
   /** The output line the reading came from. */
   evidence: string;
 }
 
 /**
- * Parse the freshest usage gauge a lane printed ("usage: 72%",
- * "12% of your weekly quota left", "used 40% of the window").
- * The LAST match in the tail wins — CLIs re-print the gauge as it moves.
- * Returns null when nothing recognizable was emitted.
+ * Window keywords, most specific first. Claude-style statuslines carry both
+ * a session gauge and a weekly gauge — merging them into one number orders
+ * lanes on whichever printed last. A custom pattern can pin the window with
+ * a named capture group: (?<window>weekly).
  */
-export function detectUsage(outputTail: string, patterns: KindPatterns): UsageReading | null {
-  let best: { index: number; pctLeft: number } | null = null;
+const WINDOW_WORDS: [QuotaWindow, RegExp][] = [
+  ['weekly', /\b(?:week|weekly|7\s*-?day)\b/i],
+  ['monthly', /\b(?:month|monthly|30\s*-?day|billing (?:cycle|period))\b/i],
+  ['daily', /\b(?:daily|day|24\s*-?h(?:our)?s?|today)\b/i],
+  ['session', /\b(?:session|5\s*-?h(?:our)?s?|current window|conversation|hour(?:ly)?)\b/i],
+];
+
+function windowOf(match: RegExpMatchArray, line: string): QuotaWindow {
+  const named = match.groups?.window;
+  if (named) {
+    const s = named.toLowerCase();
+    for (const [w, re] of WINDOW_WORDS) if (re.test(s)) return w;
+    return 'other';
+  }
+  for (const [w, re] of WINDOW_WORDS) if (re.test(line)) return w;
+  return 'other';
+}
+
+const WINDOW_ORDER: Record<QuotaWindow, number> = {
+  session: 0,
+  daily: 1,
+  weekly: 2,
+  monthly: 3,
+  other: 4,
+};
+
+/**
+ * Parse the usage gauges a lane printed ("usage: 72%", "12% of your weekly
+ * quota left", "used 40% of the window"). Each quota window keeps only its
+ * LAST match — CLIs re-print gauges as they move. Returns one reading per
+ * distinct window sorted session → other, null when nothing recognizable
+ * was emitted.
+ */
+export function detectUsage(outputTail: string, patterns: KindPatterns): UsageReading[] | null {
+  const freshest: Partial<Record<QuotaWindow, { index: number; pctLeft: number }>> = {};
   for (const [list, used] of [
     [patterns.usage ?? [], false],
     [patterns.usageUsed ?? [], true],
@@ -229,13 +266,29 @@ export function detectUsage(outputTail: string, patterns: KindPatterns): UsageRe
     for (const p of list) {
       const g = p.global ? p : new RegExp(p.source, p.flags + 'g');
       for (const m of outputTail.matchAll(g)) {
-        const n = Number.parseFloat(m[1] ?? '');
+        // First capture group that parses as a number is the percentage.
+        // A (?<window>…) named group ahead of it must not shadow the value.
+        let n = Number.NaN;
+        for (let gi = 1; gi < m.length; gi++) {
+          const v = Number.parseFloat(m[gi] ?? '');
+          if (Number.isFinite(v)) { n = v; break; }
+        }
         if (!Number.isFinite(n)) continue;
         const pctLeft = Math.min(100, Math.max(0, Math.round(used ? 100 - n : n)));
-        if (best === null || m.index > best.index) best = { index: m.index, pctLeft };
+        const w = windowOf(m, evidenceLine(outputTail, m.index));
+        const prev = freshest[w];
+        if (prev === undefined || m.index >= prev.index) freshest[w] = { index: m.index, pctLeft };
       }
     }
   }
-  if (best === null) return null;
-  return { pctLeft: best.pctLeft, evidence: evidenceLine(outputTail, best.index) };
+  const readings: UsageReading[] = [];
+  for (const [window, v] of Object.entries(freshest)) {
+    readings.push({
+      window: window as QuotaWindow,
+      pctLeft: v.pctLeft,
+      evidence: evidenceLine(outputTail, v.index),
+    });
+  }
+  readings.sort((a, b) => WINDOW_ORDER[a.window] - WINDOW_ORDER[b.window]);
+  return readings.length > 0 ? readings : null;
 }

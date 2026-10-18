@@ -25,12 +25,15 @@ export interface LanePatterns {
   reset?: string[];
   /**
    * Regex strings whose first capture group is a REMAINING quota percentage
-   * (e.g. "(\\d+)% left in your window"). Last match in the output wins.
+   * (e.g. "(\\d+)% left in your window"). Last match per quota window wins;
+   * a (?<window>weekly|session|daily|monthly) named group pins the window,
+   * otherwise it is inferred from keywords on the same line.
    */
   usage?: string[];
   /**
    * Regex strings whose first capture group is a USED quota percentage
    * (e.g. "used (\\d+)% of your weekly quota"). Left = 100 - used.
+   * Same per-window semantics as `usage`.
    */
   usageUsed?: string[];
 

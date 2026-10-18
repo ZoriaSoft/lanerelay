@@ -117,6 +117,21 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
       linux/darwin x64+arm64 and windows-x64; linux-x64 verified end-to-end
       (init/run/status/report) on the sandbox.
 
+## Done (round 8)
+
+- [x] **`qp doctor`** — preflight: config parses, lane executables resolve
+      (PATH / PATHEXT / file), `{{prompt}}` slot, `.qp` dirs writable,
+      state JSON valid, watcher lock and leases checked for dead pids.
+      ok/warn/FAIL lines or `--json`; exit 1 on FAIL. 9 tests.
+- [x] **Per-window quota gauges** — `detectUsage` returns one reading per
+      window (session/daily/weekly/monthly/other; keywords on the line or
+      a `(?<window>…)` group). State keeps the freshest reading per
+      window (legacy files migrate), ordering takes the *poorest* fresh
+      window, and staleness is per-window TTL (8h/36h/9d/35d/24h).
+      `qp status`/`qp top` render multi-window gauges.
+- [x] **`qp report --jsonl`** — one run record per line; **`qp add
+      --file`** (`-` = stdin) enqueues one task per line.
+
 ## Next (priority order)
 
 1. [x] **Real-CLI fidelity pass** (partial, r2): codex/claude/gemini strings

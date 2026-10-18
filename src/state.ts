@@ -1,9 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+import type { QuotaWindow } from './detect.js';
+
 export interface UsageObservation {
   /** Percentage of quota remaining as last reported by the lane (0–100). */
   pctLeft: number;
+  /** Which quota window this gauge describes ('other' when unlabeled). */
+  window: QuotaWindow;
   /** ISO timestamp of the observation. */
   observedAt: string;
   /** Output line the reading came from. */
@@ -19,8 +23,8 @@ export interface LaneState {
   lastResult?: string;
   /** ISO timestamp of the last attempt. */
   lastRunAt?: string;
-  /** Last quota gauge the lane printed, when it did. */
-  usage?: UsageObservation;
+  /** Last quota gauges the lane printed, one entry per quota window. */
+  usage?: UsageObservation[];
 }
 
 interface StateFile {
@@ -28,8 +32,26 @@ interface StateFile {
   lanes: Record<string, LaneState>;
 }
 
-/** Usage readings older than this are ignored for ordering (24h). */
-const USAGE_STALE_MS = 24 * 3_600_000;
+/**
+ * A reading goes stale once its own window could have rolled over:
+ * a "3% left" from yesterday's session must not haunt the lane after the
+ * reset refilled it. 'other' (unlabeled gauges) uses a 24h safety net.
+ */
+const USAGE_STALE_MS: Record<QuotaWindow, number> = {
+  session: 8 * 3_600_000,
+  daily: 36 * 3_600_000,
+  weekly: 9 * 24 * 3_600_000,
+  monthly: 35 * 24 * 3_600_000,
+  other: 24 * 3_600_000,
+};
+
+const WINDOW_SORT: Record<QuotaWindow, number> = {
+  session: 0,
+  daily: 1,
+  weekly: 2,
+  monthly: 3,
+  other: 4,
+};
 
 /**
  * Per-repo lane state persisted in `.qp/state.json`. Written atomically
@@ -60,7 +82,17 @@ export class LaneStore {
     }
     try {
       const parsed = JSON.parse(readFileSync(this.path, 'utf8')) as StateFile;
-      this.lanes = parsed && typeof parsed === 'object' && parsed.lanes ? parsed.lanes : {};
+      const lanes = parsed && typeof parsed === 'object' && parsed.lanes ? parsed.lanes : {};
+      // Migrate pre-windowed files: usage used to be a single observation.
+      for (const s of Object.values(lanes)) {
+        const u = s.usage as unknown;
+        if (u && !Array.isArray(u) && typeof u === 'object') {
+          s.usage = [{ ...(u as UsageObservation), window: 'other' }];
+        } else if (Array.isArray(u)) {
+          for (const o of u) if (o && typeof o === 'object' && !o.window) o.window = 'other';
+        }
+      }
+      this.lanes = lanes;
     } catch {
       // Corrupt state file: start clean rather than crash. The worst
       // outcome is re-trying a blocked lane once.
@@ -104,26 +136,50 @@ export class LaneStore {
     return d;
   }
 
-  /**
-   * Last observed quota gauge for ordering; null when never seen or when
-   * the reading is older than the staleness window (resets refill quotas,
-   * so an old "3% left" must not haunt the lane after rollover).
-   */
-  quotaLeft(lane: string, now: Date = new Date()): number | null {
+  /** Fresh (non-stale) observations per window, sorted session → other. */
+  usageReadings(lane: string, now: Date = new Date()): UsageObservation[] {
     this.refresh();
-    const u = this.lanes[lane]?.usage;
-    if (!u) return null;
-    const at = new Date(u.observedAt).getTime();
-    if (!Number.isFinite(at) || now.getTime() - at > USAGE_STALE_MS) return null;
-    return u.pctLeft;
+    const list = this.lanes[lane]?.usage ?? [];
+    const fresh = list.filter((o) => {
+      const at = new Date(o.observedAt).getTime();
+      return Number.isFinite(at) && now.getTime() - at <= (USAGE_STALE_MS[o.window] ?? USAGE_STALE_MS.other);
+    });
+    return fresh.sort((a, b) => WINDOW_SORT[a.window] - WINDOW_SORT[b.window]);
   }
 
-  markUsage(lane: string, reading: { pctLeft: number; evidence: string }): void {
+  /**
+   * Effective remaining quota for ordering: the poorest fresh window —
+   * a lane whose session gauge reads 90% is still a bad bet when its
+   * weekly cap sits at 3%. Null when nothing was observed or every
+   * reading went stale.
+   */
+  quotaLeft(lane: string, now: Date = new Date()): number | null {
+    const fresh = this.usageReadings(lane, now);
+    if (fresh.length === 0) return null;
+    return Math.min(...fresh.map((o) => o.pctLeft));
+  }
+
+  /**
+   * Store the freshest reading per window. A single reading updates only
+   * its window — gauges for other windows keep their previous value.
+   */
+  markUsage(
+    lane: string,
+    readings:
+      | { pctLeft: number; evidence: string; window?: QuotaWindow }
+      | { pctLeft: number; evidence: string; window?: QuotaWindow }[],
+  ): void {
     this.refresh();
-    this.lanes[lane] = {
-      ...this.lanes[lane],
-      usage: { pctLeft: reading.pctLeft, observedAt: new Date().toISOString(), evidence: reading.evidence },
-    };
+    const list = Array.isArray(readings) ? readings : [readings];
+    if (list.length === 0) return;
+    const byWindow: Partial<Record<QuotaWindow, UsageObservation>> = {};
+    for (const o of this.lanes[lane]?.usage ?? []) byWindow[o.window] = o;
+    const at = new Date().toISOString();
+    for (const r of list) {
+      const w = r.window ?? 'other';
+      byWindow[w] = { pctLeft: r.pctLeft, window: w, observedAt: at, evidence: r.evidence };
+    }
+    this.lanes[lane] = { ...this.lanes[lane], usage: Object.values(byWindow) };
     this.save();
   }
 
