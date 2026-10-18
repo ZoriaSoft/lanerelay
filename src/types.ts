@@ -99,6 +99,12 @@ export interface QueueConfig {
   pollSeconds?: number;
   /** Parallel workers for `qp watch`. Default 1. */
   jobs?: number;
+  /**
+   * How many times `qp watch` may defer a task that finds every lane
+   * blocked back to pending until a reset. Default 10; 0 = keep deferring
+   * until it runs or is removed.
+   */
+  maxDefers?: number;
 }
 
 export interface Config {

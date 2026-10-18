@@ -95,10 +95,11 @@ qp run "task"
 | `qp status` | `available` / `blocked until HH:MM (Nm)` / `unknown` per lane, `[leased by <run>]` when a parallel run holds it, plus unfinished/resumable runs (`--json`). |
 | `qp top` | Live dashboard: per-lane blocked countdowns, quota gauges, running tasks on their lanes, queue depth, resumable runs. `--interval <s>`, `--once` / piped = single frame, `q` quits. |
 | `qp probe <lane>` / `qp probe --all` | Send a tiny prompt to a lane and classify it: `available`, `limited` (learns the real reset time into state), `auth-error` (bad key/plan — blocked 24h so the watcher won't spin), `error`, `timeout`. Costs a little quota; exit 2 when any lane is limited/auth-error. `--prompt`, `--timeout <s>`, `--json`. |
-| `qp report` | Run history: per-lane attempt stats (done/limited/failed/timeout), queue outcomes, resumable runs, recent runs (`--json`). |
+| `qp report` | Run history: per-lane attempt stats (done/limited/failed/timeout), queue outcomes, resumable runs, recent runs (`--json`). `qp report --lane <name>` drills into one lane: every recorded attempt with evidence and log refs. |
 | `qp add "task"` | Enqueue a task for the watcher. |
 | `qp queue` | List pending / running / done / failed items (with the run record id). |
-| `qp watch` | Daemon: drain the queue (`--once` exits when empty, `--poll N`). `--jobs N` runs up to N tasks at once, each on a *different* lane (per-lane leases in `.qp/leases/`); `queue.jobs` in config does the same. Outputs interleave — use `-q` and read `.qp/logs/`. |
+| `qp watch` | Daemon: drain the queue (`--once` exits when empty, `--poll N`). `--jobs N` runs up to N tasks at once, each on a *different* lane (per-lane leases in `.qp/leases/`); `queue.jobs` in config does the same. A task that finds every lane blocked is **deferred**, not failed: it goes back to pending until the earliest lane reset (`queue.maxDefers`, default 10). Outputs interleave — use `-q` and `qp log`. |
+| `qp log [selector]` | Tail a lane attempt log from `.qp/logs` (last 200 lines). Selector: run id prefix (`qp log r-abc1`), queue item id, lane name (`qp log claude`), or filename fragment; no selector = newest log. `--lines/-n` (0 = whole file), `--follow/-f` (live tail), `--list` (recent files). |
 | `qp prune [--days N]` | Delete run records older than N days (default 30). |
 | `qp unblock [lane]` | Clear a lane's blocked state manually. |
 
@@ -135,6 +136,7 @@ queue:
   dir: .qp/queue
   pollSeconds: 3
   jobs: 1                       # parallel tasks for `qp watch` (`--jobs` overrides)
+  maxDefers: 10                 # times a task may wait for a lane reset; 0 = forever
 
 handoff:
   diff: stat                    # none|stat|full — working-tree info in handoff prompts
@@ -182,8 +184,19 @@ exported on POSIX, so wrapper scripts can read it instead of the argv slot.
 npm ci
 npm test          # vitest — pattern library + orchestration + queue
 npm run build     # tsc → dist/
-test/smoke.sh     # end-to-end: fake lanes, resume, watch, report
+test/smoke.sh     # end-to-end: fake lanes, resume, deferrals, watch, report
 ```
+
+### Standalone binary (no Node at runtime)
+
+```bash
+scripts/compile.sh            # linux-x64 → dist/bin/qp-linux-x64
+scripts/compile.sh all        # linux/darwin x64+arm64, windows-x64
+```
+
+Built with `bun build --compile` (falls back to `npx bun` when bun isn't on
+PATH). The binary is self-contained (~90 MB) — every `qp` command works
+without Node installed.
 
 MIT licensed. Issues and PRs welcome — new lane patterns for tools we
 haven't seen are especially useful.

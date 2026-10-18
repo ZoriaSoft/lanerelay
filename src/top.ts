@@ -171,7 +171,12 @@ export function formatTop(snap: TopSnapshot, opts: FormatOpts = {}): string {
   out.push('', `queue: ${q.pending} pending · ${q.running} running · ${q.done} done · ${q.failed} failed`);
   for (const item of snap.pending.slice(0, PENDING_PREVIEW)) {
     const chain = item.chain ? ` [${item.chain}]` : '';
-    out.push(`  ${item.id}  ${clip(item.task, Math.max(20, width - 30))}${chain}`);
+    const wake = item.notBefore ? Date.parse(item.notBefore) : NaN;
+    const deferred =
+      Number.isFinite(wake) && wake > now.getTime()
+        ? ` ${paint('dim', `[wake ${new Date(wake).toLocaleTimeString()}${item.defers ? ` x${item.defers}` : ''}]`)}`
+        : '';
+    out.push(`  ${item.id}  ${clip(item.task, Math.max(20, width - 30))}${chain}${deferred}`);
   }
   if (snap.pending.length > PENDING_PREVIEW) {
     out.push(paint('dim', `  … and ${snap.pending.length - PENDING_PREVIEW} more pending`));

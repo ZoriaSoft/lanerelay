@@ -314,4 +314,82 @@ contains top.out 'LANES' "top lane section"
 contains top.out 'queue:' "top queue line"
 pass "top --once"
 
+# --- 11. deferred queue item survives an all-blocked window ---------------
+# maxWaitMinutes 0 → runTask times out the instant the lane is blocked; the
+# watcher must defer the item to the reset (not fail it), and a persistent
+# watcher must pick it up once the reset passes.
+cat > quota-pilot.yaml <<EOF
+lanes:
+  - name: hero
+    kind: custom
+    command: "sh $WORK/hero.sh {{prompt}}"
+    cost: free
+    priority: 0
+defaults:
+  maxWaitMinutes: 0
+queue:
+  pollSeconds: 1
+  maxDefers: 3
+EOF
+RESET_AT=$(date -u -d '+4 seconds' '+%Y-%m-%dT%H:%M:%S.000Z')
+printf '{"lanes":{"hero":{"blockedUntil":"%s","reason":"smoke"}}}\n' "$RESET_AT" > .qp/state.json
+DEF_ID=$($QP add "deferred job" | sed 's/^queued //')
+$QP watch -q --poll 1 >watch3.out 2>watch3.err &
+WPID=$!
+for i in $(seq 1 45); do [ -f ".qp/queue/done/$DEF_ID.json" ] && break; sleep 1; done
+kill $WPID 2>/dev/null || true
+wait $WPID 2>/dev/null || true
+[ -f ".qp/queue/done/$DEF_ID.json" ] || { cat watch3.err >&2; fail "deferred item never ran"; }
+contains watch3.err 'deferred until' "watch defers the task"
+contains watch3.err 'wait timed out' "defer reason is timeout"
+grep -q "\"id\": \"$DEF_ID\"" ".qp/queue/done/$DEF_ID.json" || fail "deferred item not in done/"
+grep -q '"defers": 1' ".qp/queue/done/$DEF_ID.json" || { cat ".qp/queue/done/$DEF_ID.json" >&2; fail "defers counter not recorded"; }
+$QP queue >queue3.out 2>&1
+contains queue3.out "$DEF_ID" "deferred item finished"
+pass "watch defers all-blocked tasks to lane reset"
+
+# --- 12. qp log + report --lane -------------------------------------------
+$QP log --list >loglist.out 2>&1 || fail "log --list exit code"
+contains loglist.out 'hero.log' "log --list shows lane logs"
+$QP log >logtail.out 2>logtail.err || fail "log exit code"
+grep -q '^# lane: ' logtail.out || { cat logtail.out >&2; fail "log did not print log file"; }
+$QP log "$RUN1" >logrun.out 2>&1 || fail "log <run-id> exit code"
+grep -q '^# lane: ' logrun.out || fail "log <run-id> did not print attempt log"
+$QP log hero >loglane.out 2>&1 || fail "log <lane> exit code"
+grep -q '^# lane: hero' loglane.out || fail "log <lane> picked wrong file"
+if $QP log nope-does-not-exist >logbad.out 2>&1; then fail "unknown selector should exit non-zero"; fi
+contains logbad.out 'no log file, lane or run id matching' "unknown selector message"
+pass "qp log"
+
+$QP report --lane hero >rl.out 2>&1 || fail "report --lane exit code"
+contains rl.out 'lane hero:' "report --lane header"
+contains rl.out 'attempts' "report --lane stats"
+contains rl.out 'log ' "report --lane shows log refs"
+if $QP report --lane ghost-lane >rlbad.out 2>&1; then fail "unknown lane should exit non-zero"; fi
+contains rlbad.out 'no recorded attempts' "empty lane report"
+$QP report --lane hero --json | grep -q '"verdict": "done"' || fail "report --lane --json"
+pass "qp report --lane"
+
+# queue.maxDefers validation rejects negatives
+cat > quota-pilot.yaml <<EOF
+lanes:
+  - name: hero
+    kind: custom
+    command: "sh $WORK/hero.sh {{prompt}}"
+queue:
+  maxDefers: -1
+EOF
+if $QP status >badcfg.out 2>&1; then fail "maxDefers -1 accepted"; fi
+contains badcfg.out 'queue.maxDefers must be a non-negative integer' "maxDefers validation"
+# restore a working config for anything after this point
+cat > quota-pilot.yaml <<EOF
+lanes:
+  - name: hero
+    kind: custom
+    command: "sh $WORK/hero.sh {{prompt}}"
+    cost: free
+    priority: 0
+EOF
+pass "queue.maxDefers validation"
+
 printf 'all smoke checks passed\n'

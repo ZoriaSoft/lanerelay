@@ -162,4 +162,20 @@ describe('formatTop', () => {
     expect(formatTop(snap, { now: NOW })).toContain('watcher: running (pid 777)');
     expect(formatTop(topSnapshot(source()), { now: NOW })).toContain('watcher: none');
   });
+
+  it('marks deferred pending items with their wake time', () => {
+    const deferred = {
+      ...item('q9', 'task waiting for reset'),
+      notBefore: '2026-10-18T13:00:00.000Z',
+      defers: 2,
+    } satisfies QueueItem;
+    const snap = topSnapshot(source({ queue: { pending: [deferred], running: [], done: [], failed: [] } }));
+    const text = formatTop(snap, { now: NOW, width: 100 });
+    expect(text).toContain('task waiting for reset');
+    expect(text).toContain('x2]');
+    // Past notBefore renders as a normal pending row.
+    const due = { ...deferred, notBefore: '2026-10-18T11:00:00.000Z' };
+    const snap2 = topSnapshot(source({ queue: { pending: [due], running: [], done: [], failed: [] } }));
+    expect(formatTop(snap2, { now: NOW, width: 100 })).not.toContain('[wake ');
+  });
 });

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { Command, Option } from 'commander';
 import { ConfigError, DEFAULTS, findConfigFile, loadConfig, orderLanes, resolveLane } from './config.js';
@@ -7,12 +7,13 @@ import { initConfig } from './init.js';
 import { runTask, type OrchestrateOptions } from './orchestrate.js';
 import { LeaseSet } from './leases.js';
 import { DEFAULT_PROBE_PROMPT, probeLane, type ProbeResult } from './probe.js';
-import { TaskQueue } from './queue.js';
-import { buildReport, formatReport } from './report.js';
+import { deferDecision, TaskQueue } from './queue.js';
+import { buildReport, formatLaneReport, formatReport, laneReport } from './report.js';
 import { pidAlive, RunStore, type RunRecord } from './runs.js';
 import { LaneStore } from './state.js';
 import { formatStatus, laneStatuses } from './status.js';
 import { runTop, topSnapshot } from './top.js';
+import { listLogs, resolveLog, tailFile } from './logview.js';
 import type { AttemptResult, Config, Lane, TaskVerdict } from './types.js';
 
 interface Ctx {
@@ -142,7 +143,7 @@ const program = new Command();
 program
   .name('qp')
   .description('Run one coding task across several AI agent CLIs; quota-limit hits hand the task to the next lane.')
-  .version('0.6.0')
+  .version('0.7.0')
   .option('--config <path>', 'path to quota-pilot.yaml');
 
 program
@@ -329,8 +330,13 @@ program
       printed = true;
       console.log(`${state}:`);
       for (const i of items) {
+        const wake = i.notBefore ? Date.parse(i.notBefore) : NaN;
+        const deferred =
+          state === 'pending' && Number.isFinite(wake) && wake > Date.now()
+            ? `  [deferred until ${new Date(wake).toLocaleTimeString()}${i.defers ? ` x${i.defers}` : ''}${i.deferReason ? ` — ${i.deferReason}` : ''}]`
+            : '';
         const tail = `${i.result ? `  → ${i.result}${i.lane ? ` on ${i.lane}` : ''}` : ''}${i.runId ? `  run ${i.runId}` : ''}`;
-        console.log(`  ${i.id}  ${i.task.slice(0, 80)}${tail}`);
+        console.log(`  ${i.id}  ${i.task.slice(0, 80)}${tail}${deferred}`);
       }
     }
     if (!printed) console.log('queue is empty');
@@ -339,9 +345,16 @@ program
 program
   .command('report')
   .description('run history: per-lane attempt stats, queue outcomes, resumable runs')
+  .option('--lane <name>', 'drill into one lane: every recorded attempt with log refs')
   .addOption(new Option('--json', 'machine-readable output'))
-  .action((opts: { json?: boolean }, cmd: Command) => {
+  .action((opts: { lane?: string; json?: boolean }, cmd: Command) => {
     const ctx = loadCtx(process.cwd(), cmd.optsWithGlobals().config);
+    if (opts.lane !== undefined) {
+      const detail = laneReport(ctx.runs.list(), opts.lane);
+      console.log(opts.json ? JSON.stringify(detail, null, 2) : formatLaneReport(detail));
+      if (detail.stats.attempts === 0) process.exitCode = 1;
+      return;
+    }
     const rep = buildReport(ctx.runs.list(), new TaskQueue(ctx.queueDir).list());
     console.log(opts.json ? JSON.stringify(rep, null, 2) : formatReport(rep));
   });
@@ -444,12 +457,33 @@ program
               onUpdate: wireRecord(ctx.runs, rec),
               runOpts: { tee: !opts.quiet, logsDir },
             });
-            q.finish(item, verdict.type, {
-              lane: verdict.type === 'done' ? verdict.lane : undefined,
-              error: verdict.type === 'failed' ? verdict.lastError : undefined,
-              runId: rec.id,
-            });
-            process.stderr.write(`qp: [w${wid}] ${item.id} → ${verdict.type} (run ${rec.id})\n`);
+            // A task that found every lane blocked/leased is not dead: put
+            // it back until the earliest lane reset instead of failing it.
+            const maxDefers = ctx.cfg.queue?.maxDefers ?? 10;
+            const now = new Date();
+            const resets = lanes.map((l) => ctx.store.blockedUntil(l.name, now));
+            if (verdict.type === 'all-blocked') resets.push(verdict.earliestReset);
+            const defer = deferDecision(verdict.type, resets, item.defers ?? 0, maxDefers, now);
+            if (defer) {
+              item.runId = rec.id;
+              q.defer(item, defer.wakeAt, defer.reason);
+              process.stderr.write(
+                `qp: [w${wid}] ${item.id} deferred until ${defer.wakeAt.toLocaleTimeString()} ` +
+                  `(x${item.defers}, ${defer.reason}, run ${rec.id})\n`,
+              );
+            } else {
+              q.finish(item, verdict.type, {
+                lane: verdict.type === 'done' ? verdict.lane : undefined,
+                error:
+                  verdict.type === 'failed'
+                    ? verdict.lastError
+                    : verdict.type === 'all-blocked' || verdict.type === 'timeout'
+                      ? `${verdict.type}: defer limit ${maxDefers} reached`
+                      : undefined,
+                runId: rec.id,
+              });
+              process.stderr.write(`qp: [w${wid}] ${item.id} → ${verdict.type} (run ${rec.id})\n`);
+            }
           } finally {
             // Any lease left behind (a throw between acquire and the inner
             // finally) must not pin the lane for the other workers.
@@ -458,6 +492,18 @@ program
         }
       };
       await Promise.all(Array.from({ length: jobs }, (_, i) => worker(i + 1)));
+      if (opts.once) {
+        // Deferred items stay pending by design (--once never waits out a
+        // lane reset); tell the user instead of a silent early exit.
+        const left = q.list('pending');
+        if (left.length > 0) {
+          const wakes = left
+            .map((i) => (i.notBefore ? Date.parse(i.notBefore) : NaN))
+            .filter((w) => Number.isFinite(w));
+          const eta = wakes.length > 0 ? ` until ${new Date(Math.min(...wakes)).toLocaleTimeString()}` : '';
+          process.stderr.write(`qp: ${left.length} deferred item(s) left in queue${eta}\n`);
+        }
+      }
     },
   );
 
@@ -470,6 +516,85 @@ program
     ctx.store.unblock(lane);
     console.log(lane ? `unblocked ${lane}` : 'all lanes unblocked');
   });
+
+program
+  .command('log')
+  .argument(
+    '[selector]',
+    'run id prefix, queue item id prefix, lane name, or log filename fragment (default: newest log)',
+  )
+  .description('tail a lane attempt log from .qp/logs (or follow a live one)')
+  .option('-n, --lines <n>', 'lines to print (0 = whole file)', (v) => parseInt(v, 10), 200)
+  .option('-f, --follow', 'keep printing new bytes as the lane writes them')
+  .option('--list', 'list recent log files instead of tailing')
+  .action(
+    async (
+      selector: string | undefined,
+      opts: { lines: number; follow?: boolean; list?: boolean },
+      cmd: Command,
+    ) => {
+      const cwd = process.cwd();
+      const ctx = loadCtx(cwd, cmd.optsWithGlobals().config);
+      const logsDir = join(cwd, ctx.cfg.defaults?.logsDir ?? DEFAULTS.logsDir);
+
+      if (opts.list) {
+        const entries = listLogs(logsDir);
+        if (entries.length === 0) {
+          console.log(`no logs in ${logsDir} yet`);
+          return;
+        }
+        for (const e of entries.slice(0, 20)) {
+          const when = new Date(e.mtimeMs).toISOString().slice(0, 19).replace('T', ' ');
+          const size = e.sizeBytes < 1024 ? `${e.sizeBytes}B` : `${Math.round(e.sizeBytes / 1024)}K`;
+          console.log(`  ${when}  ${String(size).padStart(6)}  ${e.name}`);
+        }
+        return;
+      }
+
+      const q = new TaskQueue(ctx.queueDir);
+      const resolved = resolveLog(logsDir, {
+        selector,
+        records: ctx.runs.list(),
+        queueItems: q.list(),
+        lanes: ctx.cfg.lanes.map((l) => l.name),
+      });
+      if (!resolved.entry) {
+        process.stderr.write(`qp: ${resolved.error}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      const path = resolved.entry.path;
+      process.stderr.write(`qp: ${resolved.entry.name}\n`);
+
+      const tail = tailFile(path, opts.lines);
+      if (tail.truncated) {
+        process.stderr.write('qp: (log exceeds 1 MiB; showing the tail window)\n');
+      }
+      if (tail.text) process.stdout.write(tail.text + '\n');
+
+      if (opts.follow) {
+        // Cheap tail -f: poll the file every 500 ms and stream appends.
+        // Reset the offset when the file shrinks (rotation/truncate).
+        let offset = statSync(path).size;
+        for (;;) {
+          await sleep(500);
+          const size = statSync(path).size;
+          if (size < offset) offset = size;
+          if (size === offset) continue;
+          const fd = openSync(path, 'r');
+          try {
+            const buf = Buffer.alloc(size - offset);
+            const n = readSync(fd, buf, 0, buf.length, offset);
+            process.stdout.write(buf.subarray(0, n).toString('utf8'));
+            offset += n;
+          } finally {
+            closeSync(fd);
+          }
+        }
+      }
+    },
+  );
+
 
 program
   .command('probe')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildReport, formatReport } from '../src/report.js';
+import { buildReport, formatLaneReport, formatReport, laneReport } from '../src/report.js';
 import type { QueueItem } from '../src/queue.js';
 import type { RunRecord } from '../src/runs.js';
 import type { AttemptResult } from '../src/types.js';
@@ -127,5 +127,49 @@ describe('formatReport', () => {
     const out = formatReport(buildReport([], []));
     expect(out).toContain('runs: 0 total');
     expect(out).not.toContain('lanes:');
+  });
+});
+
+describe('laneReport', () => {
+  it('aggregates stats and returns newest-first attempt rows for one lane', () => {
+    const records = [
+      rec({ id: 'r-1', attempts: [done('claude'), limited('codex')] }),
+      rec({ id: 'r-2', startedAt: '2026-10-18T11:00:00.000Z', attempts: [limited('codex')] }),
+    ];
+    const detail = laneReport(records, 'codex');
+    expect(detail.stats).toMatchObject({ lane: 'codex', attempts: 2, limited: 2, done: 0 });
+    expect(detail.rows.map((r) => r.runId)).toEqual(['r-2', 'r-1']);
+    expect(detail.rows[0]?.verdict).toBe('limited');
+    expect(laneReport(records, 'claude').rows).toHaveLength(1);
+  });
+
+  it('surfaces attempt evidence and log refs', () => {
+    const records = [
+      rec({
+        id: 'r-1',
+        attempts: [
+          {
+            lane: 'codex',
+            verdict: { type: 'limited', outputTail: 'x', resetAt: new Date('2026-10-18T15:00:00Z'), evidence: '429 quota' },
+            exitCode: 1,
+            durationMs: 12_000,
+            logFile: '/tmp/.qp/logs/a-codex.log',
+          },
+        ],
+      }),
+    ];
+    const row = laneReport(records, 'codex').rows[0];
+    expect(row?.evidence).toBe('429 quota');
+    expect(row?.resetAt).toBe('2026-10-18T15:00:00.000Z');
+    expect(row?.logFile).toBe('/tmp/.qp/logs/a-codex.log');
+    const text = formatLaneReport(laneReport(records, 'codex'));
+    expect(text).toContain('limited');
+    expect(text).toContain('429 quota');
+    expect(text).toContain('a-codex.log');
+  });
+
+  it('reports a lane with no attempts', () => {
+    expect(laneReport([], 'gemini').stats.attempts).toBe(0);
+    expect(formatLaneReport(laneReport([], 'gemini'))).toContain('no recorded attempts');
   });
 });

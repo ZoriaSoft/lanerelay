@@ -1,5 +1,7 @@
+import { basename } from 'node:path';
 import type { QueueItem } from './queue.js';
 import type { RunRecord } from './runs.js';
+import { formatCountdown } from './top.js';
 
 export interface LaneReport {
   lane: string;
@@ -35,8 +37,9 @@ const RESUMABLE_LIMIT = 10;
 
 /**
  * Build a report from run records and queue items. Queue finishes only
- * record done/failed; all-blocked/timeout queue items land in `failed`, so
- * queue coverage is inherently coarser than run records.
+ * record done/failed; all-blocked/timeout items defer back to pending until
+ * a lane reset, so their failed count only grows on hard errors or once the
+ * defer limit hits.
  */
 export function buildReport(records: RunRecord[], items: QueueItem[]): Report {
   const runs = {
@@ -128,6 +131,86 @@ export function formatReport(rep: Report): string {
       const via = rec.resumedFrom ? ` (resumed ${rec.resumedFrom})` : '';
       out.push(`  ${rec.id}  ${when}  ${rec.status}${lane}${via}  ${clip(rec.task, 50)}`);
     }
+  }
+  return out.join('\n');
+}
+
+/** One lane attempt inside a run, for `qp report --lane` drill-down. */
+export interface LaneAttemptRow {
+  runId: string;
+  task: string;
+  at: string;
+  verdict: 'done' | 'limited' | 'failed' | 'timeout';
+  exitCode: number | null;
+  durationMs: number;
+  /** Limit evidence / failure reason when the attempt produced one. */
+  evidence?: string;
+  resetAt?: string;
+  logFile?: string;
+}
+
+export interface LaneDetail {
+  stats: LaneReport;
+  /** Newest-first attempt rows across every run record. */
+  rows: LaneAttemptRow[];
+}
+
+const LANE_ROWS_LIMIT = 20;
+
+/**
+ * Drill-down for `qp report --lane <name>`: the lane's aggregate stats plus
+ * every recorded attempt, newest first. Records without an attempt on the
+ * lane contribute nothing (a run may have failed before reaching it).
+ */
+export function laneReport(records: RunRecord[], lane: string): LaneDetail {
+  const stats: LaneReport = { lane, attempts: 0, done: 0, limited: 0, failed: 0, timeout: 0, lastAt: '' };
+  const rows: LaneAttemptRow[] = [];
+  for (const rec of records) {
+    for (const a of rec.attempts) {
+      if (a.lane !== lane) continue;
+      stats.attempts += 1;
+      stats[a.verdict.type] += 1;
+      const at = rec.startedAt;
+      if (at > stats.lastAt) stats.lastAt = at;
+      rows.push({
+        runId: rec.id,
+        task: rec.task,
+        at,
+        verdict: a.verdict.type,
+        exitCode: a.exitCode,
+        durationMs: a.durationMs,
+        evidence: a.verdict.type === 'limited' || a.verdict.type === 'failed' ? a.verdict.evidence : undefined,
+        resetAt: a.verdict.type === 'limited' && a.verdict.resetAt ? new Date(a.verdict.resetAt).toISOString() : undefined,
+        logFile: a.logFile,
+      });
+    }
+  }
+  // Records arrive in caller order; the drill-down contract is newest-first.
+  rows.sort((a, b) => b.at.localeCompare(a.at) || b.runId.localeCompare(a.runId));
+  return { stats, rows };
+}
+
+export function formatLaneReport(detail: LaneDetail): string {
+  const { stats, rows } = detail;
+  const out: string[] = [];
+  if (stats.attempts === 0) {
+    return `lane "${stats.lane}": no recorded attempts`;
+  }
+  out.push(
+    `lane ${stats.lane}: ${stats.attempts} attempts ` +
+      `(done ${stats.done}, limited ${stats.limited}, failed ${stats.failed}, timeout ${stats.timeout})` +
+      `${stats.lastAt ? ` — last ${stats.lastAt.slice(0, 16).replace('T', ' ')}` : ''}`,
+  );
+  for (const r of rows.slice(0, LANE_ROWS_LIMIT)) {
+    const when = r.at.slice(0, 16).replace('T', ' ');
+    const dur = formatCountdown(r.durationMs).padStart(6);
+    const exit = r.exitCode !== null ? ` exit ${r.exitCode}` : '';
+    const ev = r.evidence ? `  — ${clip(r.evidence, 60)}` : '';
+    const log = r.logFile ? `  log ${basename(r.logFile)}` : '';
+    out.push(`  ${when}  ${r.runId.padEnd(18)} ${r.verdict.padEnd(7)} ${dur}${exit}${ev}${log}`);
+  }
+  if (rows.length > LANE_ROWS_LIMIT) {
+    out.push(`  … and ${rows.length - LANE_ROWS_LIMIT} more (use --json for the full list)`);
   }
   return out.join('\n');
 }

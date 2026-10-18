@@ -1,6 +1,6 @@
 {
   "name": "quota-pilot",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Run one coding task across several AI agent CLIs; when one lane hits its quota, the task hops to the next.",
   "license": "MIT",
   "type": "commonjs",
@@ -17,7 +17,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "dev": "tsx src/cli.ts"
+    "dev": "tsx src/cli.ts",
+    "compile": "sh scripts/compile.sh all"
   },
   "dependencies": {
     "commander": "^14.0.0",

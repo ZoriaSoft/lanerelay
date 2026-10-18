@@ -34,10 +34,11 @@ devir notuyla bir sonraki hatta geçer.
 | `qp status` | Hat başına `available` / `blocked until HH:MM` / `unknown`, `[leased by <koşu>]` paralel kilit bilgisiyle, artı devam ettirilebilir koşular (`--json`). |
 | `qp top` | Canlı pano: hat başına engel geri sayımı, kota göstergeleri, hangi görev hangi hatta, kuyruk derinliği, devam ettirilebilir koşular. `--interval <s>`, `--once` / boru hattında tek kare, `q` çıkar. |
 | `qp probe <hat>` / `qp probe --all` | Hatta küçük bir deneme istemi gönderir: `available`, `limited` (gerçek sıfırlanma zamanını state'e yazar), `auth-error` (bozuk anahtar/plan — 24s engeller), `error`, `timeout`. `--prompt`, `--timeout <s>`, `--json`. |
-| `qp report` | Koşu geçmişi: hat başına deneme istatistikleri (done/limited/failed/timeout), kuyruk sonuçları, devam ettirilebilir koşular (`--json`). |
+| `qp report` | Koşu geçmişi: hat başına deneme istatistikleri (done/limited/failed/timeout), kuyruk sonuçları, devam ettirilebilir koşular (`--json`). `qp report --lane <ad>` tek hattı açar: kanıt ve log referanslarıyla tüm denemeler. |
 | `qp add "görev"` | İzleyici için görevi kuyruğa ekle. |
-| `qp queue` | Bekleyen / çalışan / biten / hatalı öğeleri listele (koşu kaydı id'siyle). |
-| `qp watch` | Daemon: kuyruğu tüket (`--once` boşalınca çıkar, `--poll N`). `--jobs N` aynı anda N görev koşturur, her biri *farklı* hatta (`.qp/leases/` altında hat başına kilit); config'te `queue.jobs` aynı işi yapar. Çıktılar karışır — `-q` kullanıp `.qp/logs/`'a bakın. |
+| `qp queue` | Bekleyen / çalışan / biten / hatalı öğeleri listele (koşu kaydı id'siyle); ertelenen öğeler `[deferred until HH:MM xN]` etiketi taşır. |
+| `qp watch` | Daemon: kuyruğu tüket (`--once` boşalınca çıkar, `--poll N`). `--jobs N` aynı anda N görev koşturur, her biri *farklı* hatta (`.qp/leases/` altında hat başına kilit); config'te `queue.jobs` aynı işi yapar. Tüm hatlar engelliyken görev **ertelenir**, hata olmaz: ilk hat sıfırlanmasına kadar bekleyene döner (`queue.maxDefers`, varsayılan 10). Çıktılar karışır — `-q` kullanıp `qp log`'a bakın. |
+| `qp log [seçici]` | `.qp/logs` altındaki deneme logunu gösterir (son 200 satır). Seçici: koşu id öneki (`qp log r-abc1`), kuyruk öğesi id'si, hat adı (`qp log claude`) veya dosya adı parçası; seçici yoksa en yeni log. `--lines/-n` (0 = tüm dosya), `--follow/-f` (canlı takip), `--list` (son dosyalar). |
 | `qp prune [--days N]` | N günden eski koşu kayıtlarını sil (varsayılan 30). |
 | `qp unblock [hat]` | Hattın engelli durumunu elle temizle. |
 
@@ -71,4 +72,5 @@ devir notuyla bir sonraki hatta geçer.
   ortam değişkeniyle gelir; POSIX'te `QP_PROMPT` da export edilir.
 
 Detaylı yapılandırma, limitler ve geliştirme notları için `README.md`'ye
-bakın. MIT lisansı.
+bakın. Node'suz çalışan tek dosyalık ikililer `scripts/compile.sh`
+(bun build --compile) ile üretilir. MIT lisansı.

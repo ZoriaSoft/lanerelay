@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 0.7.0 — 2026-10-18 (round 7)
+
+### Added
+
+- **Queue deferral.** A `qp watch` task that found every lane blocked or
+  timed out waiting used to land in `failed/` — an overnight queue
+  self-destructed on a shared 5-hour reset. Items now defer back to
+  `pending/` with a `notBefore` (earliest known lane reset, 60s fallback)
+  and keep their FIFO slot; `queue.maxDefers` (default 10, 0 = forever)
+  caps repeats before the item really fails. `qp queue` marks deferred
+  items `[deferred until HH:MM xN — reason]`, `qp top` shows `[wake …]`,
+  and `watch --once` reports deferred leftovers instead of exiting quietly.
+- **`qp log [selector]`** — tails `.qp/logs/` attempt files: no selector
+  picks the newest log; a run-id prefix resolves through the run record's
+  attempt refs, a queue-item id through its `runId`, an exact lane name
+  picks that lane's newest log, anything else matches filenames.
+  `-n/--lines` (0 = whole file), `-f/--follow` live-tails, `--list` shows
+  recent files.
+- **`qp report --lane <name>`** — per-lane drill-down: aggregate stats plus
+  every recorded attempt (newest first) with duration, evidence and the
+  log file ref. `--json` for the full list; exit 1 when the lane has no
+  attempts.
+- **Standalone binaries** — `scripts/compile.sh [targets…]` (or
+  `npm run compile`) bundles qp into self-contained `dist/bin/qp-*`
+  executables via `bun build --compile` (`npx bun` when bun isn't on PATH).
+  Default target linux-x64; `all` also builds darwin x64/arm64 and
+  windows-x64. linux-x64 binary verified end-to-end.
+
+### Fixed
+
+- `watch --once` no longer silently abandons deferred items — it prints how
+  many are left and when the first wakes.
+
 ## 0.6.0 — 2026-10-18 (round 6)
 
 ### Added

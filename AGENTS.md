@@ -24,6 +24,9 @@ src/
                  writes, mtime-refresh for concurrent qp processes
   leases.ts      .qp/leases/<lane>.json per-lane mutex for parallel runs
   queue.ts       .qp/queue/{pending,running,done,failed}/*.json, atomic claim
+                 + defer() — all-blocked tasks wait in pending/ with a
+                 notBefore (queue.maxDefers); deferDecision picks the wake
+  logview.ts     `qp log` — run/item/lane/filename selector → attempt log tail
   hooks.ts       command + webhook notifications
   runs.ts        .qp/runs/<id>.json — RunRecord per task execution, resume source
   report.ts      qp report aggregation (lanes / queue / resumable / recent)

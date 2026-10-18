@@ -74,6 +74,10 @@ export function loadConfig(path: string): Config {
   if (jobs !== undefined && (!Number.isInteger(jobs) || jobs < 1)) {
     throw new ConfigError(`${path}: queue.jobs must be a positive integer`);
   }
+  const maxDefers = cfg.queue?.maxDefers;
+  if (maxDefers !== undefined && (!Number.isInteger(maxDefers) || maxDefers < 0)) {
+    throw new ConfigError(`${path}: queue.maxDefers must be a non-negative integer`);
+  }
   if (cfg.handoff !== undefined) {
     const d = cfg.handoff.diff;
     if (d !== undefined && d !== 'none' && d !== 'stat' && d !== 'full') {

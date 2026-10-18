@@ -96,6 +96,27 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
       Rendering is split into pure `topSnapshot`/`formatTop` (8 tests) and
       a thin TTY loop.
 
+## Done (round 7)
+
+- [x] **Queue deferral.** A `qp watch` task that found every lane blocked
+      or timed out waiting used to land in `failed/` — overnight queues
+      self-destructed on a shared 5h reset. Items now defer back to
+      `pending/` with a `notBefore` = earliest lane reset (`deferDecision`
+      pure helper; `queue.maxDefers`, default 10, 0 = forever). `claim()`
+      skips future notBefore (FIFO slot kept); deferred items show
+      `[deferred until …]` in `qp queue` and `[wake …]` in `qp top`.
+      `watch --once` reports leftovers instead of a silent early exit.
+- [x] **`qp log [selector]`** — tails `.qp/logs/` (200 lines, `--lines 0` =
+      whole file, `--follow`, `--list`). Selector resolves run-id prefix →
+      queue-item id → lane name → filename fragment; records carry the
+      absolute log path so ids find the right attempt.
+- [x] **`qp report --lane <name>`** — drill-down: per-lane stats plus every
+      recorded attempt (verdict, duration, evidence, log ref), `--json`.
+- [x] **Standalone binary** (`scripts/compile.sh` → `bun build --compile`,
+      `npx bun` fallback): `dist/bin/qp-*` self-contained binaries for
+      linux/darwin x64+arm64 and windows-x64; linux-x64 verified end-to-end
+      (init/run/status/report) on the sandbox.
+
 ## Next (priority order)
 
 1. [x] **Real-CLI fidelity pass** (partial, r2): codex/claude/gemini strings
@@ -111,14 +132,18 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
 4. [x] **Task-level resume** (r3): see Done (round 3). Follow-up idea:
       ~~`qp runs prune`~~ → shipped as `qp prune` (r4).
 5. [x] **`qp report`** (r3): per-lane attempts + queue + resumable/recent.
-       Follow-up: `qp report --lane claude` drill-down / JSONL export.
+       Drill-down shipped (r7) as `qp report --lane <name>`; open: JSONL
+       export.
 6. [x] **Parallel watch** (r5): `--jobs N`/`queue.jobs`, per-lane file
        leases shared with `qp run`. Follow-up: per-chain lane sets when a
        task is pinned to a subset.
 7. [x] TUI `qp top` (r6): shipped with raw ANSI, zero deps. Follow-up:
        `top --jobs`-style per-worker view, key to open the latest log file.
-8. [ ] Homebrew/standalone binary packaging (bun compile or pkg) so non-Node
-       users get `qp` without npm.
+8. [x] Standalone binary packaging (r7): `scripts/compile.sh` →
+       `dist/bin/qp-<target>` via `bun build --compile` (npx fallback).
+       Remaining for round 8: Homebrew tap formula + release-asset pipeline
+       once the repo goes public; windows/darwin binaries untested beyond
+       `bun build` success.
 
 ## Open questions
 
