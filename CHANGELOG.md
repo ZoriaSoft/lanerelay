@@ -1,5 +1,36 @@
 # CHANGELOG
 
+## 0.5.0 — 2026-10-18 (round 5)
+
+### Added
+
+- **Parallel watch.** `qp watch --jobs N` (or `queue.jobs` in config) drains
+  the queue with N workers. Per-lane leases (`.qp/leases/<lane>.json`,
+  atomic `O_EXCL` create, dead-pid reclaim, fresh-corrupt files treated as
+  held) guarantee two tasks never burn the same lane at once — across
+  workers *and* separate `qp` processes, so a manual `qp run` respects a
+  watcher's lane. A run whose lanes are all leased polls at 5s instead of
+  waiting for a quota reset that doesn't exist. `qp status` shows
+  `[leased by <run>]`, `defaults.leasesDir` relocates the directory.
+- **`handoff.diff` / `qp run --diff none|stat|full`.** `full` embeds a
+  bounded `git diff HEAD` patch (`handoff.diffMaxBytes`, default 8192) in
+  the handoff so the next agent sees the actual edits; `none` sends no
+  working-tree state. Handoff prompt cap raised 16→32 KiB.
+- **Windows lanes.** Command templates spawn via `cmd /d /s /c` on win32;
+  `{{prompt}}` becomes `%QP_PROMPT%` (cmd mangles long quoted text and
+  caps a line near 8 KiB). `QP_PROMPT` is exported on POSIX too — wrapper
+  scripts can read it instead of the argv slot. Timeouts kill the process
+  tree via `taskkill /T /F`.
+- `queue.jobs` config + validation.
+
+### Fixed
+
+- `qp watch --once` processed a single item then exited; it now drains the
+  whole queue, matching its help text.
+- `.qp/state.json` was read once at startup: a `qp run` started after a
+  watcher learned a block would retry the dead lane anyway. The store now
+  reloads when the file's mtime changes (best-effort last-writer-wins).
+
 ## 0.4.0 — 2026-10-18 (round 4)
 
 ### Added

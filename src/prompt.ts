@@ -1,13 +1,18 @@
 import type { AttemptResult } from './types.js';
 
 const MAX_ATTEMPT_TAIL = 1_500;
-const MAX_PROMPT = 16_000;
+// Agent CLIs accept large prompts; a full diff needs headroom. POSIX argv
+// caps near 128KB and Windows passes the prompt via env var, so 32KB is safe.
+const MAX_PROMPT = 32_000;
 
 interface HandoffCtx {
   task: string;
   attempts: AttemptResult[];
   cwd: string;
+  /** gitDiffSummary output; empty when unavailable or diff mode 'none'. */
   diffSummary: string;
+  /** gitDiffPatch output (diff mode 'full'); empty otherwise. */
+  diffPatch?: string;
 }
 
 /**
@@ -30,6 +35,9 @@ export function renderPrompt(ctx: HandoffCtx): string {
   if (ctx.diffSummary) {
     blocks.push('', 'Current working tree changes:', '```', ctx.diffSummary, '```');
   }
+  if (ctx.diffPatch) {
+    blocks.push('', 'Current working tree diff:', '```diff', ctx.diffPatch, '```');
+  }
 
   for (const a of ctx.attempts) {
     const tail = a.verdict.outputTail.slice(-MAX_ATTEMPT_TAIL);
@@ -47,6 +55,6 @@ export function renderPrompt(ctx: HandoffCtx): string {
   const full = blocks.join('\n');
   // Keep the prompt under control: drop oldest attempt tails if needed.
   if (full.length <= MAX_PROMPT) return full;
-  const truncated = [ctx.task, '', '---', 'Earlier attempts truncated for length.', '', ctx.diffSummary ? `Working tree:\n${ctx.diffSummary}` : '', '', 'Continue the task.'].join('\n');
+  const truncated = [ctx.task, '', '---', 'Earlier attempts truncated for length.', '', ctx.diffSummary ? `Working tree:\n${ctx.diffSummary}` : '', ctx.diffPatch ? `\nDiff (truncated):\n${ctx.diffPatch.slice(0, 4_000)}` : '', '', 'Continue the task.'].join('\n');
   return truncated.slice(0, MAX_PROMPT);
 }

@@ -30,12 +30,13 @@ devir notuyla bir sonraki hatta geçer.
 | `qp run --chain a,b,c "görev"` | Hat sırasını zorla veya config'teki isimli zinciri kullan. |
 | `qp run --resume <id>` | Kesilmiş/hatalı/engelli bir koşuyu devam ettir (id'ler `qp report`'ta). Sıradaki hat tüm deneme geçmişini devir notu olarak alır. |
 | `qp run --no-wait` | Tüm hatlar engelliyken uyumak yerine çık. |
+| `qp run --diff none\|stat\|full` | Devir istemine ne kadar çalışma ağacı bilgisi girsin (varsayılan `stat`; `full` sınırlı `git diff` yamasını gömer). |
 | `qp status` | Hat başına `available` / `blocked until HH:MM` / `unknown`, artı devam ettirilebilir koşular (`--json`). |
 | `qp probe <hat>` / `qp probe --all` | Hatta küçük bir deneme istemi gönderir: `available`, `limited` (gerçek sıfırlanma zamanını state'e yazar), `auth-error` (bozuk anahtar/plan — 24s engeller), `error`, `timeout`. `--prompt`, `--timeout <s>`, `--json`. |
 | `qp report` | Koşu geçmişi: hat başına deneme istatistikleri (done/limited/failed/timeout), kuyruk sonuçları, devam ettirilebilir koşular (`--json`). |
 | `qp add "görev"` | İzleyici için görevi kuyruğa ekle. |
 | `qp queue` | Bekleyen / çalışan / biten / hatalı öğeleri listele (koşu kaydı id'siyle). |
-| `qp watch` | Daemon: kuyruğu tek tek görev işleyerek tüket (`--once`, `--poll N`). |
+| `qp watch` | Daemon: kuyruğu tüket (`--once` boşalınca çıkar, `--poll N`). `--jobs N` aynı anda N görev koşturur, her biri *farklı* hatta (`.qp/leases/` altında hat başına kilit); config'te `queue.jobs` aynı işi yapar. Çıktılar karışır — `-q` kullanıp `.qp/logs/`'a bakın. |
 | `qp prune [--days N]` | N günden eski koşu kayıtlarını sil (varsayılan 30). |
 
 ## Nasıl çalışır
@@ -60,6 +61,12 @@ devir notuyla bir sonraki hatta geçer.
   CLI bir kullanım göstergesi yazdırırsa ("usage: 72%", "12% quota left")
   qp bunu hatırlar (24 saat eskime) ve görev ortasında ölme ihtimali en düşük
   hattı öne alır. Açık `--chain` sırası her zaman kazanır.
+- Hat kilitleri `.qp/leases/<hat>.json` altında tutulur ve eşzamanlılığı
+  güvenli kılar: her deneme o hattın kilidini alır (atomik dosya, ölü
+  süreçler geri kazanılır). Böylece `qp watch --jobs 2` ile eşzamanlı bir
+  `qp run` aynı aboneliği iki görev için aynı anda tüketmez.
+- Windows'ta lane komutları `cmd /c` ile çalışır ve istem `%QP_PROMPT%`
+  ortam değişkeniyle gelir; POSIX'te `QP_PROMPT` da export edilir.
 
 Detaylı yapılandırma, limitler ve geliştirme notları için `README.md`'ye
 bakın. MIT lisansı.

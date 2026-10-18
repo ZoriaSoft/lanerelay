@@ -14,6 +14,7 @@ export const DEFAULTS = {
   logsDir: '.qp/logs',
   runsDir: '.qp/runs',
   queueDir: '.qp/queue',
+  leasesDir: '.qp/leases',
   pollSeconds: 3,
 } as const;
 
@@ -67,6 +68,20 @@ export function loadConfig(path: string): Config {
       if (!seen.has(ln)) {
         throw new ConfigError(`${path}: chain "${name}" references unknown lane "${ln}"`);
       }
+    }
+  }
+  const jobs = cfg.queue?.jobs;
+  if (jobs !== undefined && (!Number.isInteger(jobs) || jobs < 1)) {
+    throw new ConfigError(`${path}: queue.jobs must be a positive integer`);
+  }
+  if (cfg.handoff !== undefined) {
+    const d = cfg.handoff.diff;
+    if (d !== undefined && d !== 'none' && d !== 'stat' && d !== 'full') {
+      throw new ConfigError(`${path}: handoff.diff must be "none", "stat" or "full"`);
+    }
+    const mb = cfg.handoff.diffMaxBytes;
+    if (mb !== undefined && (!Number.isInteger(mb) || mb < 0)) {
+      throw new ConfigError(`${path}: handoff.diffMaxBytes must be a non-negative integer`);
     }
   }
   return cfg;

@@ -1,9 +1,9 @@
 import { detectLimit, detectUsage } from './detect.js';
-import { gitDiffSummary } from './git.js';
+import { gitDiffPatch, gitDiffSummary } from './git.js';
 import { fireHooks } from './hooks.js';
 import { mergePatterns } from './patterns.js';
 import { renderPrompt } from './prompt.js';
-import { runLane, type RunOptions } from './runner.js';
+import { runLane, type RunOptions, type RunResult } from './runner.js';
 import { LaneStore } from './state.js';
 import type { AttemptResult, Config, Lane, TaskVerdict } from './types.js';
 import { DEFAULTS } from './config.js';
@@ -31,9 +31,25 @@ export interface OrchestrateOptions {
   now?: () => Date;
   /** Sleep implementation (tests inject a no-op). */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Lane lease set (parallel runs): a lane attempt starts only after its
+   * lease is acquired; the lease is released when the child exits.
+   * `leaseOwner` identifies this run inside the lease file (run record id).
+   */
+  leases?: {
+    acquire(lane: string, runId: string): boolean;
+    heldByOther(lane: string, runId: string): unknown;
+    release(lane: string): void;
+  };
+  leaseOwner?: string;
+  /** Handoff diff mode; overrides cfg.handoff.diff. Default 'stat'. */
+  diffMode?: 'none' | 'stat' | 'full';
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** How often to re-check lanes when all are leased (not blocked) by others. */
+const LEASE_POLL_MS = 5_000;
 
 /**
  * Run `task` through the ordered lanes. A lane that hits its limit is marked
@@ -56,28 +72,41 @@ export async function runTask(
   const sleep = opts.sleep ?? defaultSleep;
   const wait = opts.wait ?? true;
   const maxWaitMs = (cfg.defaults?.maxWaitMinutes ?? DEFAULTS.maxWaitMinutes) * 60_000;
+  const notify = opts.onUpdate ?? (() => {});
+  const diffMode = opts.diffMode ?? cfg.handoff?.diff ?? 'stat';
+  const owner = opts.leaseOwner ?? `pid-${process.pid}`;
   const started = now().getTime();
   const attempts: AttemptResult[] = [...(opts.resume ?? [])];
-  const notify = opts.onUpdate ?? (() => {});
 
   for (;;) {
-    const free = lanes.filter((l) => store.blockedUntil(l.name, now()) === null);
+    const free = lanes.filter(
+      (l) => store.blockedUntil(l.name, now()) === null && !opts.leases?.heldByOther(l.name, owner),
+    );
     if (free.length === 0) {
       const resets = lanes
         .map((l) => store.blockedUntil(l.name, now()))
         .filter((d): d is Date => d !== null)
         .sort((a, b) => a.getTime() - b.getTime());
       const earliest = resets[0] ?? null;
-      if (!wait || earliest === null) {
+      const leased = opts.leases !== undefined && lanes.some((l) => opts.leases!.heldByOther(l.name, owner));
+      if (!wait || (earliest === null && !leased)) {
         const verdict: TaskVerdict = { type: 'all-blocked', attempts, earliestReset: earliest };
         notify(attempts, verdict);
         return verdict;
       }
-      const waitMs = earliest.getTime() - now().getTime();
+      // A leased lane may free up any second — cap the nap at LEASE_POLL_MS
+      // even when a blocked lane's reset is further out.
+      const waitMs = earliest === null ? LEASE_POLL_MS : Math.min(LEASE_POLL_MS, earliest.getTime() - now().getTime());
       if (now().getTime() - started + waitMs > maxWaitMs) {
         const verdict: TaskVerdict = { type: 'timeout', attempts };
         notify(attempts, verdict);
         return verdict;
+      }
+      if (earliest === null) {
+        // Every lane is leased by another run but none is quota-blocked:
+        // poll briefly instead of sleeping for a reset that doesn't exist.
+        await sleep(LEASE_POLL_MS);
+        continue;
       }
       const laneName = lanes.find((l) => store.blockedUntil(l.name, now())?.getTime() === earliest.getTime())?.name ?? 'a lane';
       process.stderr.write(`qp: all lanes blocked; waiting until ${earliest.toLocaleTimeString()} for ${laneName}\n`);
@@ -88,18 +117,25 @@ export async function runTask(
     for (const lane of free) {
       // A parallel run may have blocked it since `free` was computed.
       if (store.blockedUntil(lane.name, now()) !== null) continue;
+      if (opts.leases && !opts.leases.acquire(lane.name, owner)) continue;
       const prompt = renderPrompt({
         task,
         attempts,
         cwd: opts.cwd,
-        diffSummary: gitDiffSummary(opts.cwd),
+        diffSummary: diffMode === 'none' ? '' : gitDiffSummary(opts.cwd),
+        diffPatch: diffMode === 'full' ? gitDiffPatch(opts.cwd, cfg.handoff?.diffMaxBytes) : '',
       });
-      const result = await runLane(lane, prompt, {
-        cwd: opts.cwd,
-        tee: opts.runOpts?.tee,
-        logsDir: opts.runOpts?.logsDir,
-        tailBytes: opts.runOpts?.tailBytes,
-      });
+      let result: RunResult;
+      try {
+        result = await runLane(lane, prompt, {
+          cwd: opts.cwd,
+          tee: opts.runOpts?.tee,
+          logsDir: opts.runOpts?.logsDir,
+          tailBytes: opts.runOpts?.tailBytes,
+        });
+      } finally {
+        opts.leases?.release(lane.name);
+      }
 
       const patterns = mergePatterns(lane.kind, lane.patterns);
       const usage = detectUsage(result.outputTail, patterns);

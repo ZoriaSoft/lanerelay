@@ -33,15 +33,28 @@ export interface LanePatterns {
    * (e.g. "used (\\d+)% of your weekly quota"). Left = 100 - used.
    */
   usageUsed?: string[];
+
   /** Exit codes that always mean "limit hit" regardless of output. */
   exitCodes?: number[];
+}
+
+/** How much working-tree state goes into the handoff prompt. */
+export interface HandoffConfig {
+  /**
+   * 'stat' (default): `git diff --stat` + untracked file list.
+   * 'full': the stat block plus the actual `git diff` patch (bounded).
+   * 'none': no repo state at all — the next agent inspects the tree itself.
+   */
+  diff?: 'none' | 'stat' | 'full';
+  /** Byte cap on the patch body when `diff: full`. Default 8192. */
+  diffMaxBytes?: number;
 }
 
 export interface LaneConfig {
   name: string;
   /** Agent flavor; selects the built-in pattern set. Default: custom. */
   kind?: LaneKind;
-  /** Shell command template; must contain {{prompt}}. Runs via `sh -c`. */
+  /** Shell command template; must contain {{prompt}}. Runs via `sh -c` (`cmd /c` on Windows). */
   command: string;
   /** Optional metadata (model name) shown in status/logs. */
   model?: string;
@@ -84,6 +97,8 @@ export interface QueueConfig {
   dir?: string;
   /** Poll interval for `qp watch` (seconds). Default 3. */
   pollSeconds?: number;
+  /** Parallel workers for `qp watch`. Default 1. */
+  jobs?: number;
 }
 
 export interface Config {
@@ -92,6 +107,7 @@ export interface Config {
   chains?: Record<string, ChainConfig>;
   hooks?: HooksConfig;
   queue?: QueueConfig;
+  handoff?: HandoffConfig;
   defaults?: {
     /** Burn paid lanes before free lanes. Default true. */
     paidFirst?: boolean;
@@ -107,6 +123,8 @@ export interface Config {
     runsDir?: string;
     /** State file path. Default `.qp/state.json`. */
     stateFile?: string;
+    /** Directory for lane lease files (parallel runs). Default `.qp/leases`. */
+    leasesDir?: string;
   };
 }
 

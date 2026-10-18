@@ -76,6 +76,11 @@ qp run "task"
   marked `interrupted`; `qp run --resume <id>` continues the same task with
   the full attempt history in the handoff. `qp report` and `qp status` show
   what's resumable.
+- **Lane leases** live in `.qp/leases/<lane>.json` and make concurrency safe:
+  every attempt takes an exclusive per-lane lock (atomic `O_EXCL` create,
+  dead pids reclaimed), so `qp watch --jobs 2` and a concurrent `qp run`
+  never burn the same subscription for two tasks at once. A run whose lanes
+  are all leased polls every few seconds until one frees.
 
 ## Commands
 
@@ -86,12 +91,13 @@ qp run "task"
 | `qp run --chain a,b,c "task"` | Force a lane order, or a named chain from config. |
 | `qp run --resume <id>` | Continue an interrupted/failed/blocked run (ids in `qp report`). The next lane gets the full attempt history as handoff. |
 | `qp run --no-wait "task"` | Exit 2 instead of sleeping when every lane is blocked. |
-| `qp status` | `available` / `blocked until HH:MM (Nm)` / `unknown` per lane, plus unfinished/resumable runs (`--json`). |
+| `qp run --diff none\|stat\|full` | Control how much working-tree state goes into the handoff prompt (default `stat`; `full` embeds the bounded `git diff` patch). |
+| `qp status` | `available` / `blocked until HH:MM (Nm)` / `unknown` per lane, `[leased by <run>]` when a parallel run holds it, plus unfinished/resumable runs (`--json`). |
 | `qp probe <lane>` / `qp probe --all` | Send a tiny prompt to a lane and classify it: `available`, `limited` (learns the real reset time into state), `auth-error` (bad key/plan — blocked 24h so the watcher won't spin), `error`, `timeout`. Costs a little quota; exit 2 when any lane is limited/auth-error. `--prompt`, `--timeout <s>`, `--json`. |
 | `qp report` | Run history: per-lane attempt stats (done/limited/failed/timeout), queue outcomes, resumable runs, recent runs (`--json`). |
 | `qp add "task"` | Enqueue a task for the watcher. |
 | `qp queue` | List pending / running / done / failed items (with the run record id). |
-| `qp watch` | Daemon: drain the queue one task at a time (`--once`, `--poll N`). |
+| `qp watch` | Daemon: drain the queue (`--once` exits when empty, `--poll N`). `--jobs N` runs up to N tasks at once, each on a *different* lane (per-lane leases in `.qp/leases/`); `queue.jobs` in config does the same. Outputs interleave — use `-q` and read `.qp/logs/`. |
 | `qp prune [--days N]` | Delete run records older than N days (default 30). |
 | `qp unblock [lane]` | Clear a lane's blocked state manually. |
 
@@ -127,7 +133,11 @@ defaults:
 queue:
   dir: .qp/queue
   pollSeconds: 3
+  jobs: 1                       # parallel tasks for `qp watch` (`--jobs` overrides)
 
+handoff:
+  diff: stat                    # none|stat|full — working-tree info in handoff prompts
+  diffMaxBytes: 8192            # patch cap when diff: full
 hooks:
   limit:                         # fired when a lane hits its cap
     - command: 'notify-send "{{lane}} limited until {{resetAt}}"'
@@ -140,13 +150,19 @@ hooks:
 Command hooks get `{{lane}} {{task}} {{status}} {{resetAt}}` templated and the
 same values as `QP_*` env vars. Webhooks receive `{"event","lane","task","status","resetAt","ts"}`.
 
+Lane command templates substitute `{{prompt}}` inline under `sh -c` on POSIX;
+on Windows they run via `cmd /c` and the prompt arrives in `%QP_PROMPT%`
+(cmd quoting is too fragile for inline substitution). `QP_PROMPT` is also
+exported on POSIX, so wrapper scripts can read it instead of the argv slot.
+
 ## Limits (the honest list)
 
 - Detection is output-parsing. CLIs that change their limit wording silently
   become `failed`, not `limited` — add a `patterns.limited` regex per lane to
   adapt. If no reset time parses, `defaultResetMinutes` applies.
-- One watcher per repo (enforced by `.qp/watch.lock`). The queue is serial;
-  no parallelism across lanes by design — one task, one lane at a time.
+- One watcher per repo (enforced by `.qp/watch.lock`). The queue is serial
+  unless `--jobs N` / `queue.jobs` > 1 — then tasks run in parallel but
+  never two on the same lane (leases).
 - Handoff is text, not session state: the next agent gets the task, the diff
   summary, and output tails — not the previous agent's conversation memory.
 - `kind: custom` only gets the generic patterns (429 / rate limit / quota);

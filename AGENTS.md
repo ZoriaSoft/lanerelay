@@ -17,9 +17,12 @@ src/
                  usage / usageUsed / exitCodes)
   detect.ts      detectLimit + parseResetTime + detectUsage — pure, well-tested
   orchestrate.ts runTask: lane loop, handoff, wait-for-reset
-  runner.ts      spawn + tee + ring-buffer tail + per-attempt logs
-  prompt.ts      handoff prompt composer; git.ts: diff summary
-  state.ts       .qp/state.json — lane blockedUntil + usage gauge, atomic writes
+  runner.ts      spawn + tee + ring-buffer tail + per-attempt logs (QP_PROMPT
+                 env; cmd /c on Windows)
+  prompt.ts      handoff prompt composer; git.ts: diff summary + bounded patch
+  state.ts       .qp/state.json — lane blockedUntil + usage gauge, atomic
+                 writes, mtime-refresh for concurrent qp processes
+  leases.ts      .qp/leases/<lane>.json per-lane mutex for parallel runs
   queue.ts       .qp/queue/{pending,running,done,failed}/*.json, atomic claim
   hooks.ts       command + webhook notifications
   runs.ts        .qp/runs/<id>.json — RunRecord per task execution, resume source

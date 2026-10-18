@@ -1,9 +1,10 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../src/config.js';
-import { orderLanes } from '../src/config.js';
+import { LeaseSet } from '../src/leases.js';
+import { loadConfig, orderLanes } from '../src/config.js';
 import { runTask } from '../src/orchestrate.js';
 import { LaneStore } from '../src/state.js';
 
@@ -235,5 +236,83 @@ describe('runTask', () => {
     });
     expect(verdict.type).toBe('done');
     expect(store.quotaLeft('a')).toBe(3);
+  });
+
+  it('runs two tasks in parallel on different lanes via leases', async () => {
+    const dir = workdir();
+    const cfgPath = cfg(dir, [
+      fakeLane(dir, 'alpha', 'echo alpha; exit 0'),
+      fakeLane(dir, 'beta', 'echo beta; exit 0'),
+    ]);
+    const config = loadConfig(cfgPath);
+    const store = new LaneStore(join(dir, 'state.json'));
+    const leases = new LeaseSet(join(dir, 'leases'));
+    // Both runs see lanes in the same order; run-2 must skip run-1's lease.
+    const [v1, v2] = await Promise.all([
+      runTask('t1', config, orderLanes(config), store, { cwd: dir, ...silent, leases, leaseOwner: 'r-1' }),
+      runTask('t2', config, orderLanes(config), store, { cwd: dir, ...silent, leases, leaseOwner: 'r-2' }),
+    ]);
+    expect(v1.type).toBe('done');
+    expect(v2.type).toBe('done');
+    if (v1.type === 'done' && v2.type === 'done') {
+      expect(v1.lane).not.toBe(v2.lane);
+      expect([v1.lane, v2.lane].sort()).toEqual(['alpha', 'beta']);
+    }
+    expect(leases.heldLanes()).toEqual({});
+  });
+
+  it('waits for a leased lane instead of declaring all-blocked', async () => {
+    const dir = workdir();
+    const cfgPath = cfg(dir, [fakeLane(dir, 'sole', 'echo ok; exit 0')]);
+    const config = loadConfig(cfgPath);
+    const store = new LaneStore(join(dir, 'state.json'));
+    const leases = new LeaseSet(join(dir, 'leases'));
+    expect(leases.acquire('sole', 'r-busy')).toBe(true);
+    let slept = 0;
+    const sleep = async () => {
+      if (++slept === 2) leases.release('sole');
+    };
+    const v = await runTask('t', config, orderLanes(config), store, {
+      cwd: dir,
+      ...silent,
+      leases,
+      leaseOwner: 'r-waiter',
+      sleep,
+    });
+    expect(v.type).toBe('done');
+    expect(slept).toBeGreaterThanOrEqual(2);
+  });
+
+  const hasGit = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
+  it.skipIf(!hasGit)('diff mode none/full controls the handoff diff', async () => {
+    const dir = workdir();
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    writeFileSync(join(dir, 'tracked.txt'), 'original content\n');
+    execFileSync('git', ['add', 'tracked.txt'], { cwd: dir });
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init'], { cwd: dir });
+    writeFileSync(join(dir, 'tracked.txt'), 'changed content\n');
+
+    const heroPath = join(dir, 'hero.sh');
+    writeFileSync(heroPath, '#!/bin/sh\nprintf \'%s\' "$1" > prompt.txt\nexit 0\n');
+    chmodSync(heroPath, 0o755);
+
+    const runWith = async (mode: 'none' | 'full') => {
+      const cfgPath = cfg(dir, [
+        fakeLane(dir, 'cap', 'echo "rate limit" >&2; exit 1', { kind: 'codex' }),
+        { name: 'hero', kind: 'custom', command: `${heroPath} {{prompt}}` },
+      ]);
+      const config = loadConfig(cfgPath);
+      const store = new LaneStore(join(dir, `state-${mode}.json`));
+      await runTask('t', config, orderLanes(config), store, { cwd: dir, ...silent, diffMode: mode });
+      return readFileSync(join(dir, 'prompt.txt'), 'utf8');
+    };
+
+    const none = await runWith('none');
+    expect(none).not.toContain('diff --git');
+    expect(none).not.toContain('working tree');
+
+    const full = await runWith('full');
+    expect(full).toContain('diff --git');
+    expect(full).toContain('tracked.txt');
   });
 });

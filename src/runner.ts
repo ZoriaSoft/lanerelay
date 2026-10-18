@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
 import { join } from 'node:path';
 import type { Lane } from './types.js';
@@ -6,6 +6,30 @@ import type { Lane } from './types.js';
 /** POSIX shell quoting: wraps in single quotes, escapes embedded ones. */
 export function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+export interface SpawnSpec {
+  file: string;
+  args: string[];
+  /** Rendered command after {{prompt}} substitution (logged, not spawned). */
+  command: string;
+}
+
+/**
+ * How to run a lane's command template for `platform`:
+ * - posix: `sh -c` with {{prompt}} single-quoted inline.
+ * - win32: `cmd /d /s /c` with {{prompt}} becoming "%QP_PROMPT%". cmd.exe
+ *   mangles long single-quoted text and caps a line near 8KB, so the prompt
+ *   travels in the QP_PROMPT env var (also exported on posix for scripts).
+ */
+export function buildSpawn(template: string, prompt: string, platform: NodeJS.Platform): SpawnSpec {
+  const slot = /\{\{\s*prompt\s*\}\}/g;
+  if (platform === 'win32') {
+    const command = template.replace(slot, '"%QP_PROMPT%"');
+    return { file: 'cmd', args: ['/d', '/s', '/c', command], command };
+  }
+  const command = template.replace(slot, () => shellQuote(prompt));
+  return { file: 'sh', args: ['-c', command], command };
 }
 
 export interface RunOptions {
@@ -58,13 +82,18 @@ const DEFAULT_TAIL = 64 * 1024;
 
 /** Run one lane attempt. Command template gets {{prompt}} substituted (quoted). */
 export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<RunResult> {
-  const command = lane.command.replace(/\{\{\s*prompt\s*\}\}/g, () => shellQuote(prompt));
+  const spec = buildSpawn(lane.command, prompt, process.platform);
   const tail = new RingBuffer(opts.tailBytes ?? DEFAULT_TAIL);
   const tee = opts.tee ?? true;
   const started = Date.now();
   const { promise, resolve } = Promise.withResolvers<RunResult>();
 
-  const child = spawn('sh', ['-c', command], { cwd: opts.cwd, env: process.env });
+  const child = spawn(spec.file, spec.args, {
+    cwd: opts.cwd,
+    env: { ...process.env, QP_PROMPT: prompt },
+    // A process group of our own lets killTree hit the whole tree on posix.
+    detached: process.platform !== 'win32',
+  });
 
   let logFile: string | undefined;
   let log: WriteStream | undefined;
@@ -79,6 +108,11 @@ export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<R
   let timedOut = false;
   let timer: NodeJS.Timeout | undefined;
   const killTree = (signal: NodeJS.Signals) => {
+    if (process.platform === 'win32') {
+      // No signal granularity on Windows: /T kills the whole tree.
+      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+      return;
+    }
     // A wrapper lane may have spawned grandchildren in its own group; try the
     // group first, then the bare child. ESRCH is expected for plain children.
     try {

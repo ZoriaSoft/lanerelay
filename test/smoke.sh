@@ -223,5 +223,91 @@ $QP report >report4.out 2>&1 || fail "report after prune"
 contains report4.out 'runs:' "report still aggregates"
 pass "prune"
 
+# --- 8. watch --jobs runs queued tasks in parallel on leased lanes --------
+cat > waitA.sh <<'EOF'
+#!/bin/sh
+i=0
+# wait until the sibling lane started, then announce ourselves (proves overlap)
+while [ ! -f flag-waitB ] && [ $i -lt 100 ]; do i=$((i+1)); sleep 0.1; done
+touch flag-waitA
+exit 0
+EOF
+cat > waitB.sh <<'EOF'
+#!/bin/sh
+touch flag-waitB
+i=0
+while [ ! -f flag-waitA ] && [ $i -lt 100 ]; do i=$((i+1)); sleep 0.1; done
+exit 0
+EOF
+chmod +x waitA.sh waitB.sh
+rm -f flag-waitA flag-waitB
+
+cat > quota-pilot.yaml <<EOF
+lanes:
+  - name: lane-a
+    kind: custom
+    command: "$WORK/waitA.sh {{prompt}}"
+    priority: 0
+  - name: lane-b
+    kind: custom
+    command: "$WORK/waitB.sh {{prompt}}"
+    priority: 1
+queue:
+  jobs: 2
+EOF
+
+$QP add "parallel job one" >/dev/null
+$QP add "parallel job two" >/dev/null
+# --once drains the queue: two workers, two tasks, two lanes — each waits for
+# the other, so serial execution would time out instead of finishing fast.
+timeout 30 $QP watch --once -q >watch2.out 2>watch2.err || fail "watch --jobs exit code"
+contains watch2.err '2 workers' "watch reports worker count"
+[ -f flag-waitA ] && [ -f flag-waitB ] || fail "lanes did not overlap (leases ignored?)"
+$QP queue >queue2.out 2>&1
+[ "$(grep -c 'done' queue2.out)" -ge 3 ] || { cat queue2.out >&2; fail "queued jobs not done"; }
+[ -z "$(find .qp/leases -name '*.json' 2>/dev/null)" ] || fail "lease files leaked"
+pass "watch --jobs parallel lanes"
+
+# --- 9. --diff full embeds the patch in the handoff -----------------------
+if git --version >/dev/null 2>&1; then
+  git init -q .
+  echo base > tracked.txt
+  git add tracked.txt
+  git -c user.email=t@t -c user.name=t commit -qm init
+  echo changed > tracked.txt
+
+  cat > cap.sh <<'EOF'
+#!/bin/sh
+echo "rate limit" >&2
+exit 1
+EOF
+  chmod +x cap.sh
+  cat > quota-pilot.yaml <<EOF
+lanes:
+  - name: cap
+    kind: codex
+    command: "$WORK/cap.sh {{prompt}}"
+    priority: 0
+  - name: hero
+    kind: custom
+    command: "$WORK/hero.sh {{prompt}}"
+    priority: 1
+EOF
+
+  $QP run "diff me" -q --diff full >diff.out 2>diff.err || fail "diff-full run"
+  contains hero-prompt.txt 'diff --git' "handoff contains patch"
+  contains hero-prompt.txt 'tracked.txt' "patch names the file"
+
+  $QP unblock >/dev/null 2>&1
+  $QP run "diff me again" -q --diff none >diff2.out 2>diff2.err || fail "diff-none run"
+  contains hero-prompt.txt 'already attempted' "handoff still present"
+  if grep -qF 'diff --git' hero-prompt.txt; then fail "diff none leaked the patch"; fi
+  pass "handoff diff modes"
+else
+  pass "handoff diff modes (skipped: no git)"
+fi
+
+ printf 'all smoke checks passed\n'
+
 
 printf 'all smoke checks passed\n'

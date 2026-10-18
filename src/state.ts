@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export interface UsageObservation {
@@ -34,38 +34,69 @@ const USAGE_STALE_MS = 24 * 3_600_000;
 /**
  * Per-repo lane state persisted in `.qp/state.json`. Written atomically
  * (tmp + rename) so a killed run can't leave a half-written file.
+ *
+ * Parallel `qp` processes share this file: reads and writes reload it when
+ * its mtime changed since we last saw it, so blocks learned by a `qp watch`
+ * worker are visible to a concurrent `qp run`. It is best-effort
+ * last-writer-wins — a lane state is small enough that losing one update
+ * between processes only costs a retried attempt.
  */
 export class LaneStore {
   private readonly path: string;
   private lanes: Record<string, LaneState>;
+  private mtimeMs = 0;
 
   constructor(path: string) {
     this.path = path;
     this.lanes = {};
-    if (existsSync(path)) {
-      try {
-        const parsed = JSON.parse(readFileSync(path, 'utf8')) as StateFile;
-        if (parsed && typeof parsed === 'object' && parsed.lanes) {
-          this.lanes = parsed.lanes;
-        }
-      } catch {
-        // Corrupt state file: start clean rather than crash. The worst
-        // outcome is re-trying a blocked lane once.
-        this.lanes = {};
-      }
+    this.load();
+  }
+
+  private load(): void {
+    if (!existsSync(this.path)) {
+      this.lanes = {};
+      this.mtimeMs = 0;
+      return;
+    }
+    try {
+      const parsed = JSON.parse(readFileSync(this.path, 'utf8')) as StateFile;
+      this.lanes = parsed && typeof parsed === 'object' && parsed.lanes ? parsed.lanes : {};
+    } catch {
+      // Corrupt state file: start clean rather than crash. The worst
+      // outcome is re-trying a blocked lane once.
+      this.lanes = {};
+    }
+    try {
+      this.mtimeMs = statSync(this.path).mtimeMs;
+    } catch {
+      this.mtimeMs = 0;
     }
   }
 
+  /** Reload the file when another qp process rewrote it since our last read. */
+  private refresh(): void {
+    let m = 0;
+    try {
+      m = statSync(this.path).mtimeMs;
+    } catch {
+      /* absent file */
+    }
+    if (m !== this.mtimeMs) this.load();
+  }
+
   get(lane: string): LaneState {
+    this.refresh();
     return this.lanes[lane] ?? {};
   }
 
   all(): Record<string, LaneState> {
+    this.refresh();
     return { ...this.lanes };
   }
 
   /** Instant the lane becomes usable again; null when not blocked. */
   blockedUntil(lane: string, now: Date = new Date()): Date | null {
+    this.refresh();
     const raw = this.lanes[lane]?.blockedUntil;
     if (!raw) return null;
     const d = new Date(raw);
@@ -79,6 +110,7 @@ export class LaneStore {
    * so an old "3% left" must not haunt the lane after rollover).
    */
   quotaLeft(lane: string, now: Date = new Date()): number | null {
+    this.refresh();
     const u = this.lanes[lane]?.usage;
     if (!u) return null;
     const at = new Date(u.observedAt).getTime();
@@ -87,6 +119,7 @@ export class LaneStore {
   }
 
   markUsage(lane: string, reading: { pctLeft: number; evidence: string }): void {
+    this.refresh();
     this.lanes[lane] = {
       ...this.lanes[lane],
       usage: { pctLeft: reading.pctLeft, observedAt: new Date().toISOString(), evidence: reading.evidence },
@@ -95,6 +128,7 @@ export class LaneStore {
   }
 
   markBlocked(lane: string, until: Date, reason: string): void {
+    this.refresh();
     this.lanes[lane] = {
       ...this.lanes[lane],
       blockedUntil: until.toISOString(),
@@ -106,6 +140,7 @@ export class LaneStore {
   }
 
   markResult(lane: string, result: 'done' | 'failed' | 'timeout'): void {
+    this.refresh();
     this.lanes[lane] = {
       ...this.lanes[lane],
       lastResult: result,
@@ -115,6 +150,7 @@ export class LaneStore {
   }
 
   unblock(lane?: string): void {
+    this.refresh();
     const clear = (s?: LaneState) => {
       if (!s) return;
       delete s.blockedUntil;
@@ -136,5 +172,10 @@ export class LaneStore {
     const tmp = `${this.path}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify({ version: 1, lanes: this.lanes }, null, 2) + '\n');
     renameSync(tmp, this.path);
+    try {
+      this.mtimeMs = statSync(this.path).mtimeMs;
+    } catch {
+      /* keep previous value; next refresh reloads */
+    }
   }
 }

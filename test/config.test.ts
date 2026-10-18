@@ -62,6 +62,37 @@ describe('loadConfig', () => {
     const yaml = 'lanes:\n  - name: x\n    command: "echo {{prompt}}"\n    patterns:\n      usage: ["["]\n';
     expect(() => loadConfig(cfgFile(yaml))).toThrow(/lane "x"[\s\S]*invalid regex/);
   });
+
+  it('rejects a non-positive queue.jobs', () => {
+    expect(() =>
+      loadConfig(cfgFile(`${BASE}\nqueue:\n  jobs: 0\n`)),
+    ).toThrow(/queue\.jobs/);
+    expect(() =>
+      loadConfig(cfgFile(`${BASE}\nqueue:\n  jobs: 1.5\n`)),
+    ).toThrow(/queue\.jobs/);
+  });
+
+  it('accepts a positive queue.jobs', () => {
+    const cfg = loadConfig(cfgFile(`${BASE}\nqueue:\n  jobs: 3\n`));
+    expect(cfg.queue?.jobs).toBe(3);
+  });
+
+  it('rejects an unknown handoff.diff mode', () => {
+    expect(() =>
+      loadConfig(cfgFile(`${BASE}\nhandoff:\n  diff: everything\n`)),
+    ).toThrow(/handoff\.diff/);
+    expect(() =>
+      loadConfig(cfgFile(`${BASE}\nhandoff:\n  diffMaxBytes: -5\n`)),
+    ).toThrow(/diffMaxBytes/);
+  });
+
+  it('accepts handoff.diff modes', () => {
+    for (const mode of ['none', 'stat', 'full']) {
+      const cfg = loadConfig(cfgFile(`${BASE}\nhandoff:\n  diff: ${mode}\n  diffMaxBytes: 4096\n`));
+      expect(cfg.handoff?.diff).toBe(mode);
+      expect(cfg.handoff?.diffMaxBytes).toBe(4096);
+    }
+  });
 });
 
 

@@ -5,6 +5,7 @@ import { Command, Option } from 'commander';
 import { ConfigError, DEFAULTS, findConfigFile, loadConfig, orderLanes, resolveLane } from './config.js';
 import { initConfig } from './init.js';
 import { runTask, type OrchestrateOptions } from './orchestrate.js';
+import { LeaseSet } from './leases.js';
 import { DEFAULT_PROBE_PROMPT, probeLane, type ProbeResult } from './probe.js';
 import { TaskQueue } from './queue.js';
 import { buildReport, formatReport } from './report.js';
@@ -17,6 +18,7 @@ interface Ctx {
   cfg: Config;
   store: LaneStore;
   queueDir: string;
+  leasesDir: string;
   pollSeconds: number;
   runs: RunStore;
 }
@@ -34,6 +36,7 @@ function loadCtx(cwd: string, configFlag?: string): Ctx {
     cfg,
     store: new LaneStore(join(cwd, d.stateFile)),
     queueDir: join(cwd, cfg.queue?.dir ?? d.queueDir),
+    leasesDir: join(cwd, d.leasesDir),
     pollSeconds: cfg.queue?.pollSeconds ?? d.pollSeconds,
     runs: new RunStore(join(cwd, d.runsDir)),
   };
@@ -64,26 +67,41 @@ function report(verdict: TaskVerdict, runId?: string): number {
 }
 
 /**
+ * Registry of live run records. One shared set of exit/signal handlers marks
+ * every in-flight record 'interrupted' — needed once `qp watch --jobs N`
+ * runs several records in the same process ('exit' alone is not enough: a
+ * signal under its default disposition kills the process without firing it,
+ * so SIGINT/SIGTERM mark first, then exit with the conventional code).
+ */
+const liveRecords = new Set<{ runs: RunStore; rec: RunRecord }>();
+let signalsWired = false;
+
+function wireSignals(): void {
+  if (signalsWired) return;
+  signalsWired = true;
+  const markAll = () => {
+    for (const { runs, rec } of liveRecords) runs.markInterrupted(rec);
+  };
+  process.on('exit', markAll);
+  process.on('SIGINT', () => {
+    markAll();
+    process.exit(130);
+  });
+  process.on('SIGTERM', () => {
+    markAll();
+    process.exit(143);
+  });
+}
+
+/**
  * Persist a run record: rewrites it after every lane attempt and finalizes
  * it with the verdict; a SIGINT/exit while still running marks it
  * 'interrupted' so `qp run --resume <id>` can pick the task up.
  */
 function wireRecord(runs: RunStore, rec: RunRecord): OrchestrateOptions['onUpdate'] {
-  // 'exit' alone is not enough: a signal under its default disposition kills
-  // the process without firing it. Catch SIGINT/SIGTERM, mark the record,
-  // then exit with the conventional code (which does fire 'exit').
-  const onExit = () => runs.markInterrupted(rec);
-  const onSigint = () => {
-    runs.markInterrupted(rec);
-    process.exit(130);
-  };
-  const onSigterm = () => {
-    runs.markInterrupted(rec);
-    process.exit(143);
-  };
-  process.once('exit', onExit);
-  process.on('SIGINT', onSigint);
-  process.on('SIGTERM', onSigterm);
+  wireSignals();
+  const entry = { runs, rec };
+  liveRecords.add(entry);
   return (attempts: AttemptResult[], verdict: TaskVerdict | null) => {
     rec.attempts = attempts;
     if (verdict === null) {
@@ -101,10 +119,20 @@ function wireRecord(runs: RunStore, rec: RunRecord): OrchestrateOptions['onUpdat
               ? 'max wait exceeded'
               : undefined,
     });
-    process.off('exit', onExit);
-    process.off('SIGINT', onSigint);
-    process.off('SIGTERM', onSigterm);
+    liveRecords.delete(entry);
   };
+}
+
+function leasesFor(ctx: Ctx): LeaseSet {
+  const leases = new LeaseSet(ctx.leasesDir);
+  process.on('exit', () => leases.releaseProcess());
+  return leases;
+}
+
+function parseDiff(v: string | undefined): 'none' | 'stat' | 'full' | undefined {
+  if (v === undefined) return undefined;
+  if (v === 'none' || v === 'stat' || v === 'full') return v;
+  throw new ConfigError(`--diff must be "none", "stat" or "full" (got "${v}")`);
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -113,7 +141,7 @@ const program = new Command();
 program
   .name('qp')
   .description('Run one coding task across several AI agent CLIs; quota-limit hits hand the task to the next lane.')
-  .version('0.4.0')
+  .version('0.5.0')
   .option('--config <path>', 'path to quota-pilot.yaml');
 
 program
@@ -123,10 +151,11 @@ program
   .option('--resume <id>', 'continue an earlier run (see `qp report` for resumable ids)')
   .option('--no-wait', 'exit instead of waiting when every lane is blocked')
   .option('-q, --quiet', 'do not mirror lane output to the terminal')
+  .option('--diff <mode>', 'handoff diff mode: none|stat|full (overrides handoff.diff)')
   .action(
     async (
       taskParts: string[],
-      opts: { chain?: string; resume?: string; wait: boolean; quiet: boolean },
+      opts: { chain?: string; resume?: string; wait: boolean; quiet: boolean; diff?: string },
       cmd: Command,
     ) => {
       const cwd = process.cwd();
@@ -186,16 +215,25 @@ program
       if (resumedRec) ctx.runs.markResumed(resumedRec, rec.id);
       process.stderr.write(`qp: run ${rec.id}${resumedFrom ? ` (resuming ${resumedFrom})` : ''}\n`);
 
-      const verdict = await runTask(task, ctx.cfg, lanes, ctx.store, {
-        cwd,
-        wait: opts.wait,
-        resume: resumeFrom,
-        onUpdate: wireRecord(ctx.runs, rec),
-        runOpts: {
-          tee: !opts.quiet,
-          logsDir: join(cwd, ctx.cfg.defaults?.logsDir ?? DEFAULTS.logsDir),
-        },
-      });
+      const leases = leasesFor(ctx);
+      let verdict: TaskVerdict;
+      try {
+        verdict = await runTask(task, ctx.cfg, lanes, ctx.store, {
+          cwd,
+          wait: opts.wait,
+          resume: resumeFrom,
+          leases,
+          leaseOwner: rec.id,
+          diffMode: parseDiff(opts.diff),
+          onUpdate: wireRecord(ctx.runs, rec),
+          runOpts: {
+            tee: !opts.quiet,
+            logsDir: join(cwd, ctx.cfg.defaults?.logsDir ?? DEFAULTS.logsDir),
+          },
+        });
+      } finally {
+        leases.releaseRun(rec.id);
+      }
       process.exitCode = report(verdict, rec.id);
     },
   );
@@ -206,7 +244,12 @@ program
   .addOption(new Option('--json', 'machine-readable output'))
   .action((opts: { json?: boolean }, cmd: Command) => {
     const ctx = loadCtx(process.cwd(), cmd.optsWithGlobals().config);
-    const rows = laneStatuses(orderLanes(ctx.cfg, undefined, ctx.store), ctx.store);
+    const rows = laneStatuses(
+      orderLanes(ctx.cfg, undefined, ctx.store),
+      ctx.store,
+      new Date(),
+      existsSync(ctx.leasesDir) ? new LeaseSet(ctx.leasesDir).heldLanes() : {},
+    );
     const unfinished = ctx.runs.list().filter((r) => ctx.runs.resumable(r) || r.status === 'running');
     if (opts.json) {
       console.log(JSON.stringify({ lanes: rows, unfinishedRuns: unfinished.map((r) => r.id) }, null, 2));
@@ -280,66 +323,92 @@ program
 
 program
   .command('watch')
-  .description('daemon: process queued tasks one at a time')
+  .description('daemon: process queued tasks; --jobs N runs N tasks at once on different lanes')
   .option('-c, --chain <chain>', 'default chain for tasks without one')
+  .option('-j, --jobs <n>', 'parallel tasks (one lane lease each)', (v) => parseInt(v, 10))
   .option('--once', 'process pending tasks then exit when the queue is empty')
   .option('--poll <seconds>', 'poll interval', (v) => parseInt(v, 10))
   .option('-q, --quiet', 'do not mirror lane output')
-  .action(async (opts: { chain?: string; once?: boolean; poll?: number; quiet: boolean }, cmd: Command) => {
-    const cwd = process.cwd();
-    const ctx = loadCtx(cwd, cmd.optsWithGlobals().config);
-    const lock = join(cwd, '.qp', 'watch.lock');
+  .action(
+    async (
+      opts: { chain?: string; once?: boolean; poll?: number; jobs?: number; quiet: boolean },
+      cmd: Command,
+    ) => {
+      const cwd = process.cwd();
+      const ctx = loadCtx(cwd, cmd.optsWithGlobals().config);
+      const lock = join(cwd, '.qp', 'watch.lock');
 
-    if (existsSync(lock)) {
-      let pid = 0;
-      try {
-        pid = parseInt(readFileSync(lock, 'utf8'), 10);
-      } catch {
-        /* unreadable lock → treat as stale */
+      if (existsSync(lock)) {
+        let pid = 0;
+        try {
+          pid = parseInt(readFileSync(lock, 'utf8'), 10);
+        } catch {
+          /* unreadable lock → treat as stale */
+        }
+        if (pid && pidAlive(pid)) {
+          process.stderr.write(`qp: another watcher is already running (pid ${pid})\n`);
+          process.exitCode = 1;
+          return;
+        }
       }
-      if (pid && pidAlive(pid)) {
-        process.stderr.write(`qp: another watcher is already running (pid ${pid})\n`);
+      writeFileSync(lock, String(process.pid));
+      const cleanup = () => rmSync(lock, { force: true });
+      process.on('exit', cleanup);
+      process.on('SIGINT', () => process.exit(130));
+      process.on('SIGTERM', () => process.exit(143));
+
+      const jobs = opts.jobs ?? ctx.cfg.queue?.jobs ?? 1;
+      if (!Number.isInteger(jobs) || jobs < 1) {
+        process.stderr.write(`qp: --jobs must be a positive integer (got "${opts.jobs}")\n`);
         process.exitCode = 1;
         return;
       }
-    }
-    writeFileSync(lock, String(process.pid));
-    const cleanup = () => rmSync(lock, { force: true });
-    process.on('exit', cleanup);
-    process.on('SIGINT', () => process.exit(130));
-    process.on('SIGTERM', () => process.exit(143));
 
-    const q = new TaskQueue(ctx.queueDir);
-    const pollMs = (opts.poll ?? ctx.pollSeconds) * 1_000;
-    process.stderr.write(`qp: watching ${ctx.queueDir} (poll ${pollMs / 1000}s)\n`);
+      const q = new TaskQueue(ctx.queueDir);
+      const leases = leasesFor(ctx);
+      const pollMs = (opts.poll ?? ctx.pollSeconds) * 1_000;
+      process.stderr.write(
+        `qp: watching ${ctx.queueDir} (poll ${pollMs / 1000}s${jobs > 1 ? `, ${jobs} workers` : ''})\n`,
+      );
 
-    for (;;) {
-      const item = q.claim();
-      if (!item) {
-        if (opts.once) break;
-        await sleep(pollMs);
-        continue;
-      }
-      process.stderr.write(`qp: running ${item.id}: ${item.task.slice(0, 80)}\n`);
-      const chain = item.chain ?? opts.chain;
-      const lanes = chain ? orderLanes(ctx.cfg, chain) : orderLanes(ctx.cfg, undefined, ctx.store);
-      const rec = ctx.runs.create({ task: item.task, chain });
-      const orchOpts: OrchestrateOptions = {
-        cwd,
-        wait: true,
-        onUpdate: wireRecord(ctx.runs, rec),
-        runOpts: { tee: !opts.quiet, logsDir: join(cwd, ctx.cfg.defaults?.logsDir ?? DEFAULTS.logsDir) },
+      const logsDir = join(cwd, ctx.cfg.defaults?.logsDir ?? DEFAULTS.logsDir);
+      const worker = async (wid: number) => {
+        for (;;) {
+          const item = q.claim();
+          if (!item) {
+            if (opts.once) return;
+            await sleep(pollMs);
+            continue;
+          }
+          process.stderr.write(`qp: [w${wid}] running ${item.id}: ${item.task.slice(0, 80)}\n`);
+          const chain = item.chain ?? opts.chain;
+          const lanes = chain ? orderLanes(ctx.cfg, chain) : orderLanes(ctx.cfg, undefined, ctx.store);
+          const rec = ctx.runs.create({ task: item.task, chain });
+          try {
+            const verdict = await runTask(item.task, ctx.cfg, lanes, ctx.store, {
+              cwd,
+              wait: true,
+              leases,
+              leaseOwner: rec.id,
+              onUpdate: wireRecord(ctx.runs, rec),
+              runOpts: { tee: !opts.quiet, logsDir },
+            });
+            q.finish(item, verdict.type, {
+              lane: verdict.type === 'done' ? verdict.lane : undefined,
+              error: verdict.type === 'failed' ? verdict.lastError : undefined,
+              runId: rec.id,
+            });
+            process.stderr.write(`qp: [w${wid}] ${item.id} → ${verdict.type} (run ${rec.id})\n`);
+          } finally {
+            // Any lease left behind (a throw between acquire and the inner
+            // finally) must not pin the lane for the other workers.
+            leases.releaseRun(rec.id);
+          }
+        }
       };
-      const verdict = await runTask(item.task, ctx.cfg, lanes, ctx.store, orchOpts);
-      q.finish(item, verdict.type, {
-        lane: verdict.type === 'done' ? verdict.lane : undefined,
-        error: verdict.type === 'failed' ? verdict.lastError : undefined,
-        runId: rec.id,
-      });
-      process.stderr.write(`qp: ${item.id} → ${verdict.type} (run ${rec.id})\n`);
-      if (opts.once) break;
-    }
-  });
+      await Promise.all(Array.from({ length: jobs }, (_, i) => worker(i + 1)));
+    },
+  );
 
 program
   .command('unblock')

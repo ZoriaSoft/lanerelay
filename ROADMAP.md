@@ -66,6 +66,27 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
 - [x] Config validation now compiles `patterns.*` regexes at load — bad
       patterns fail fast with the lane name.
 
+## Done (round 5)
+
+- [x] **Parallel watch** (`--jobs N` / `queue.jobs`): N workers drain the
+      queue; per-lane file leases (`.qp/leases/<lane>.json`, O_EXCL create,
+      dead-pid reclaim, fresh-corrupt treated as held) guarantee two runs
+      never share a subscription — across workers *and* separate `qp`
+      processes. All-leased lanes poll at 5s instead of waiting for a
+      quota reset that doesn't exist. `LaneStore` now reloads on mtime
+      change so blocks learned by one worker are seen by the others.
+      `qp status` shows `[leased by <run>]`.
+- [x] **`handoff.diff` + `qp run --diff none|stat|full`**: `full` embeds a
+      bounded `git diff HEAD` patch (config `diffMaxBytes`, default 8 KiB)
+      so the next agent sees actual edits, not just --stat; `none` sends
+      no repo state. Prompt cap raised 16→32 KiB.
+- [x] Windows spawn support: lanes run via `cmd /d /s /c` on win32 with
+      the prompt in `%QP_PROMPT%` (cmd's 8KB line limit), `taskkill /T /F`
+      tree-kill on timeout. `QP_PROMPT` exported on POSIX too — wrapper
+      scripts can read it instead of argv.
+- [x] `qp watch --once` now drains the whole queue before exiting (was:
+      one item).
+
 ## Next (priority order)
 
 1. [x] **Real-CLI fidelity pass** (partial, r2): codex/claude/gemini strings
@@ -82,8 +103,9 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
       ~~`qp runs prune`~~ → shipped as `qp prune` (r4).
 5. [x] **`qp report`** (r3): per-lane attempts + queue + resumable/recent.
        Follow-up: `qp report --lane claude` drill-down / JSONL export.
-6. [ ] **Parallel watch** (opt-in `--jobs N`): claim N queue items across
-       *different* lane sets with per-run state namespacing.
+6. [x] **Parallel watch** (r5): `--jobs N`/`queue.jobs`, per-lane file
+       leases shared with `qp run`. Follow-up: per-chain lane sets when a
+       task is pinned to a subset.
 7. [ ] TUI `qp top`: live lane grid (blocked countdowns, running task,
        queue depth). Consider blessed or raw ANSI — weigh dep cost.
 8. [ ] Homebrew/standalone binary packaging (bun compile or pkg) so non-Node
@@ -91,9 +113,10 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
 
 ## Open questions
 
-- Should handoff include `git diff` *content* (bounded) not just `--stat`?
-  Agents could review actual edits; size vs usefulness tradeoff.
+- ~~Should handoff include `git diff` *content* (bounded) not just `--stat`?~~
+  Shipped (r5) as `handoff.diff: full` — default stays `stat`.
 - Per-task lane affinity ("this lane is bad at Rust repos") — worth a
   `taskTags`/history weighting, or over-engineering?
-- Windows support: runner uses `sh -c` — needs cmd.exe/powershell mode
-  (spawn `cmd /c` on win32) plus WSL note in README.
+- ~~Windows support: runner uses `sh -c`~~ shipped (r5): `cmd /c` +
+  `%QP_PROMPT%` + `taskkill /T /F`. Remaining: WSL-vs-native note in README
+  if users report friction.
