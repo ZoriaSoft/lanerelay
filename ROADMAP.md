@@ -21,15 +21,32 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
 - [x] Hooks: command (templated) + webhook on limit/handoff/finish/fail.
 - [x] `qp init` starter config; config validation; YAML named chains.
 
+## Done (round 2)
+
+- [x] Real-CLI fidelity pass: patterns calibrated against codex-rs error.rs
+      (spend caps, workspace credits, per-model limits, `Jul 19th, 2026
+      10:27 AM` resets, capacity fallbacks), claude headless banners
+      (`You've hit your limit · resets 9:10pm (TZ)`, session limit, Budget
+      limit), gemini googleQuotaErrors.ts (TerminalQuotaError,
+      MODEL_CAPACITY_EXHAUSTED, `Please retry in 34.07s`, daily-quota line).
+- [x] Detection rewrite: line-scoped notLimit suppression (recovery on a
+      later line OR qualifier before the cap on the same line), ms/compact
+      duration parsing (`143h26m`, `34.07s`, `900ms`), decimals in
+      `please retry in` capture.
+- [x] `qp probe <lane>|--all`: classifies available/limited/auth-error/
+      error/timeout; writes learned resets + auth blocks to state; 7 tests.
+- [x] Runner fix: killed lanes whose grandchildren hold stdio no longer
+      hang the run ('exit' grace period replaces 'close' wait).
+
 ## Next (priority order)
 
-1. [ ] **Real-CLI fidelity pass.** Capture actual non-interactive output of
-       `claude -p`, `codex exec`, `gemini -p` when limited (community issue
-       reports + manual run); extend fixtures, tighten patterns, especially
-       codex's JSONL `--json` mode and stream events.
-2. [ ] **`qp probe <lane>`**: send a tiny prompt, classify the lane as
-       available/limited/auth-error, and learn its real reset format —
-       self-calibrating patterns instead of guessing.
+1. [x] **Real-CLI fidelity pass** (partial, r2): codex/claude/gemini strings
+       now sourced from upstream code + issue reports. Still open: capture
+       *live* non-interactive output (`claude -p`, `codex exec --json`
+       JSONL event stream) — needs accounts.
+2. [x] **`qp probe <lane>`** (r2): classifies the lane and writes learned
+       resets/auth blocks to state. Open follow-up: `--learn` mode that
+       writes observed patterns back into the lane's `patterns:` config.
 3. [ ] **Cost-aware chain planning**: `paidFirst` is coarse; add optional
        `quotaLeft` estimates (parse `/usage`-style outputs where CLIs print
        remaining %) to pick the lane least likely to die mid-task.

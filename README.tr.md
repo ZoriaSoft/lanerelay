@@ -30,6 +30,7 @@ devir notuyla bir sonraki hatta geçer.
 | `qp run --chain a,b,c "görev"` | Hat sırasını zorla veya config'teki isimli zinciri kullan. |
 | `qp run --no-wait` | Tüm hatlar engelliyken uyumak yerine çık. |
 | `qp status` | Hat başına `available` / `blocked until HH:MM` / `unknown` (`--json`). |
+| `qp probe <hat>` / `qp probe --all` | Hatta küçük bir deneme istemi gönderir: `available`, `limited` (gerçek sıfırlanma zamanını state'e yazar), `auth-error` (bozuk anahtar/plan — 24s engeller), `error`, `timeout`. `--prompt`, `--timeout <s>`, `--json`. |
 | `qp add "görev"` | İzleyici için görevi kuyruğa ekle. |
 | `qp queue` | Bekleyen / çalışan / biten / hatalı öğeleri listele. |
 | `qp watch` | Daemon: kuyruğu tek tek görev işleyerek tüket (`--once`, `--poll N`). |

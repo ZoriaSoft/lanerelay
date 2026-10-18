@@ -52,11 +52,15 @@ qp run "task"
 - **Detection** is a per-CLI pattern library (`src/patterns.ts`) that scans the
   tail of the child's combined output for cap/429/RESOURCE_EXHAUSTED-style
   messages, plus lane-specific formats (`usage limit reached|<epoch>`,
-  `retryDelay:"45s"`, `resets at 12pm`, `try again in 40 minutes`, weekday and
-  month-day dates, ISO timestamps). Transient errors (`overloaded_error`,
-  5xx, retried 429s) are explicitly not limits. If the lane recovered after a
-  transient (a recovery marker appears *after* the cap message), the lane is
-  not blocked.
+  `retryDelay:"45s"`, `resets at 12pm`, `resets 9:10pm (Europe/Kiev)`,
+  `try again in 40 minutes`, `try again at Jul 19th, 2026 10:27 AM`,
+  `Please retry in 34.07s`, weekday and month-day dates, compact durations
+  (`143h26m`), ISO timestamps, bare epochs). Transient errors
+  (`overloaded_error`, 5xx, retried 429s, model-capacity fallbacks, user
+  budget/concurrency caps) are explicitly not limits. Suppression is
+  line-scoped: a recovery marker on a *later* line cancels the block, while
+  qualifiers *before* the cap on the same line ("Approaching weekly limit",
+  "Budget limit reached") don't trigger it.
 - **State** lives in `.qp/state.json` in the repo: which lane is blocked,
   until when, and why. `qp status` shows it; `qp unblock` clears it.
 - **Handoff prompt** = your task + "previous agents already worked on this,
@@ -73,6 +77,7 @@ qp run "task"
 | `qp run --chain a,b,c "task"` | Force a lane order, or a named chain from config. |
 | `qp run --no-wait "task"` | Exit 2 instead of sleeping when every lane is blocked. |
 | `qp status` | `available` / `blocked until HH:MM (Nm)` / `unknown` per lane (`--json`). |
+| `qp probe <lane>` / `qp probe --all` | Send a tiny prompt to a lane and classify it: `available`, `limited` (learns the real reset time into state), `auth-error` (bad key/plan — blocked 24h so the watcher won't spin), `error`, `timeout`. Costs a little quota; exit 2 when any lane is limited/auth-error. `--prompt`, `--timeout <s>`, `--json`. |
 | `qp add "task"` | Enqueue a task for the watcher. |
 | `qp queue` | List pending / running / done / failed items. |
 | `qp watch` | Daemon: drain the queue one task at a time (`--once`, `--poll N`). |

@@ -78,11 +78,26 @@ export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<R
 
   let timedOut = false;
   let timer: NodeJS.Timeout | undefined;
+  const killTree = (signal: NodeJS.Signals) => {
+    // A wrapper lane may have spawned grandchildren in its own group; try the
+    // group first, then the bare child. ESRCH is expected for plain children.
+    try {
+      process.kill(-child.pid!, signal);
+      return;
+    } catch {
+      /* not a group leader */
+    }
+    try {
+      child.kill(signal);
+    } catch {
+      /* already gone */
+    }
+  };
   if (lane.timeoutMinutes > 0) {
     timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 5_000).unref();
+      killTree('SIGTERM');
+      setTimeout(() => killTree('SIGKILL'), 5_000).unref();
     }, lane.timeoutMinutes * 60_000);
     timer.unref();
   }
@@ -95,6 +110,10 @@ export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<R
   child.stdout.on('data', (c: Buffer) => onData(c, process.stdout));
   child.stderr.on('data', (c: Buffer) => onData(c, process.stderr));
 
+  // 'close' waits for stdio EOF — a killed wrapper can leak pipes through a
+  // surviving grandchild, so 'exit' starts a short grace period after which
+  // we finish anyway rather than hang on a dead lane's open descriptors.
+  let finished = false;
   const finish = (exitCode: number | null) => {
     clearTimeout(timer);
     log?.end(`\n# exit: ${exitCode ?? 'signal'}${timedOut ? ' (timeout)' : ''}\n`);
@@ -107,11 +126,20 @@ export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<R
     });
   };
 
+  const finishOnce = (code: number | null) => {
+    if (finished) return;
+    finished = true;
+    finish(code);
+  };
+
   child.on('error', (err) => {
     tail.push(Buffer.from(`spawn error: ${err.message}\n`));
-    finish(null);
+    finishOnce(null);
   });
-  child.on('close', (code) => finish(code));
+  child.on('close', (code) => finishOnce(code));
+  child.on('exit', (code) => {
+    setTimeout(() => finishOnce(code), 1_500).unref();
+  });
 
   return promise;
 }

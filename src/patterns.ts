@@ -25,17 +25,28 @@ const GENERIC: KindPatterns = {
   limited: [
     re(String.raw`\b429\b`),
     re(String.raw`rate.?limit(?:ed|ing)?\b`),
+    re(String.raw`rate_limit_(?:error|exceeded)`),
     re(String.raw`quota (?:exceeded|exhausted|reached)`),
     re(String.raw`usage (?:limit|cap) (?:reached|exceeded|exhausted)`),
     re(String.raw`too many requests`),
     re(String.raw`insufficient_(?:quota|credit)`),
     re(String.raw`credits? (?:exhausted|depleted|insufficient)`),
+    // codex: "Your workspace is out of credits." / "hit your spend cap"
+    re(String.raw`out of credits`),
+    re(String.raw`hit your spend cap`),
+    // codex: "You've hit your usage limit for gpt-…"
+    re(String.raw`hit (?:your|the|its) usage limit(?:\s+for\b)?`),
   ],
   notLimit: [
     // Transient upstream errors that are NOT a subscription cap.
     re(String.raw`\b(500|502|503|504)\b.*\b(error|unavailable|timeout)`),
     re(String.raw`overloaded_error`),
     re(String.raw`request timed? ?out`),
+    // Concurrency / user-configured caps that look like limits but aren't:
+    re(String.raw`agent thread limit reached`), // codex: max_threads
+    re(String.raw`budget limit reached`), // claude --max-budget-usd
+    // Model-capacity fallback text (transient; the model can recover).
+    re(String.raw`model is at capacity`),
   ],
   reset: [
     // "try again in 40 minutes" / "retry after 90 seconds" / "in 1 hour 23 minutes"
@@ -44,9 +55,13 @@ const GENERIC: KindPatterns = {
     ),
     // JSON RPC style: "retryDelay":"45s"
     re(String.raw`retryDelay"?\s*[:=]\s*"?\s*([^.;\n"']{1,40})`),
-    // "reached|<epoch>" pipe format
+    // "reached|<epoch>" pipe format (claude headless)
     re(String.raw`reached\|([^.;\n]{1,40})`),
     re(String.raw`resets?[: ]+([^.;\n]{1,60})`),
+    // "resets 143h26m" / "reset in 4h12m" without 'at' (compact statuslines)
+    re(String.raw`resets?\s+([^.;\n]{1,40})`),
+    // Google RPC "Please retry in 34.07s" — capture keeps decimals + unit.
+    re(String.raw`please retry in\s+([\d.]+\s*(?:ms|secs?|s|mins?|m|hrs?|h|seconds?|minutes?|hours?)?)`),
   ],
   exitCodes: [],
 };
@@ -59,6 +74,8 @@ const CLAUDE: KindPatterns = {
     re(String.raw`you'?re out of (?:usage|capacity|extra usage)`),
     re(String.raw`out of extra usage`),
     re(String.raw`hit (?:your|the|its) (?:usage |rate )?limit`),
+    // "You've hit your limit · resets 9:10pm (Europe/Kiev)" — a reset suffix
+    // after a hit message is definitive even when the wording is unusual.
     re(String.raw`resets?\s+(?:at|in\s+)?\d`),
   ],
   notLimit: [
@@ -67,7 +84,10 @@ const CLAUDE: KindPatterns = {
     re(String.raw`approaching (?:session |weekly )?limit`),
   ],
   reset: [
+    // "You've hit your limit · resets 9:10pm (Europe/Kiev)"
     re(String.raw`resets?\s+(?:at|in)\s+([^.;\n]{1,40})`),
+    // bare "resets 9:10pm" — same-line suffix after the limit banner
+    re(String.raw`resets?\s+([^.;\n]{1,40})`),
     re(String.raw`resets?[: ]+([^.;\n]{1,40})`),
   ],
   exitCodes: [],
@@ -80,6 +100,8 @@ const CODEX: KindPatterns = {
     re(String.raw`hit (?:your|the|its) (?:usage )?limit`),
     re(String.raw`429 Too Many Requests`),
     re(String.raw`rate limit (?:reached|exceeded).*(?:resets?|try again)`),
+    // Bare "Rate limit reached for gpt-…" — no reset needed, it IS the cap.
+    re(String.raw`rate limit reached for`),
   ],
   notLimit: [
     re(String.raw`stream (?:disconnected|error)`),
@@ -102,8 +124,17 @@ const GEMINI: KindPatterns = {
     re(String.raw`daily (?:request |quota )?limit`),
     re(String.raw`reached (?:your |the )?daily limit`),
     re(String.raw`You have reached your (?:daily |request )?limit`),
+    // gemini-cli source: TerminalQuotaError — hard daily/credits caps.
+    re(String.raw`exhausted your daily quota`),
+    re(String.raw`TerminalQuotaError`),
+    re(String.raw`MODEL_CAPACITY_EXHAUSTED`),
+    re(String.raw`exhausted your capacity`),
+    re(String.raw`exceeded your current quota`),
   ],
-  notLimit: [re(String.raw`retry(?:ing|ed)? (?:in|after)`)],
+  // The CLI's own recovery log says "Retrying in Ns". A bare "retry in" also
+  // matches the "Please retry in 34.07s" hint embedded in the 429 payload —
+  // same line, before the cap string — and would wrongly suppress the hit.
+  notLimit: [re(String.raw`retrying\s+(?:in|after)`)],
   reset: [
     re(String.raw`retry (?:in|after)\s+([^.;\n]{1,60})`),
     re(String.raw`resets?\s+(?:in|at)\s+([^.;\n]{1,60})`),

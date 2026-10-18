@@ -2,9 +2,10 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Command, Option } from 'commander';
-import { ConfigError, DEFAULTS, findConfigFile, loadConfig, orderLanes } from './config.js';
+import { ConfigError, DEFAULTS, findConfigFile, loadConfig, orderLanes, resolveLane } from './config.js';
 import { initConfig } from './init.js';
 import { runTask, type OrchestrateOptions } from './orchestrate.js';
+import { DEFAULT_PROBE_PROMPT, probeLane, type ProbeResult } from './probe.js';
 import { TaskQueue } from './queue.js';
 import { LaneStore } from './state.js';
 import { formatStatus, laneStatuses } from './status.js';
@@ -65,7 +66,7 @@ const program = new Command();
 program
   .name('qp')
   .description('Run one coding task across several AI agent CLIs; quota-limit hits hand the task to the next lane.')
-  .version('0.1.0')
+  .version('0.2.0')
   .option('--config <path>', 'path to quota-pilot.yaml');
 
 program
@@ -203,6 +204,62 @@ program
     ctx.store.unblock(lane);
     console.log(lane ? `unblocked ${lane}` : 'all lanes unblocked');
   });
+
+program
+  .command('probe')
+  .argument('[lane]', 'lane name (omit with --all to probe every lane)')
+  .description('send a tiny prompt to a lane and classify it: available / limited / auth-error / error')
+  .option('--all', 'probe every configured lane')
+  .option('-p, --prompt <text>', 'probe prompt (keep it tiny — quota is scarce)')
+  .option('--timeout <seconds>', 'per-lane probe cap', (v) => parseInt(v, 10))
+  .addOption(new Option('--json', 'machine-readable output'))
+  .action(
+    async (
+      laneName: string | undefined,
+      opts: { all?: boolean; prompt?: string; timeout?: number; json?: boolean },
+      cmd: Command,
+    ) => {
+      const cwd = process.cwd();
+      const ctx = loadCtx(cwd, cmd.optsWithGlobals().config);
+
+      let lanes: Lane[];
+      if (opts.all) {
+        lanes = ctx.lanes;
+      } else if (laneName) {
+        const cfg = ctx.cfg.lanes.find((l) => l.name === laneName);
+        if (!cfg) {
+          process.stderr.write(`qp: no lane named "${laneName}" in config\n`);
+          process.exitCode = 1;
+          return;
+        }
+        lanes = [resolveLane(ctx.cfg, cfg)];
+      } else {
+        process.stderr.write('qp: give a lane name or --all\n');
+        process.exitCode = 1;
+        return;
+      }
+
+      const results: ProbeResult[] = [];
+      for (const lane of lanes) {
+        const r = await probeLane(lane, ctx.store, {
+          cwd,
+          prompt: opts.prompt ?? DEFAULT_PROBE_PROMPT,
+          timeoutMs: opts.timeout !== undefined ? opts.timeout * 1000 : undefined,
+          runOpts: { tee: !opts.json },
+        });
+        results.push(r);
+        if (!opts.json) {
+          const reset =
+            r.resetAt !== null ? `, resets ${r.resetAt.toLocaleTimeString()}` : '';
+          console.log(`${r.lane.padEnd(14)} ${r.status.padEnd(11)} ${r.durationMs}ms  ${r.evidence}${reset}`);
+        }
+      }
+      if (opts.json) console.log(JSON.stringify(results, null, 2));
+      if (results.some((r) => r.status === 'limited' || r.status === 'auth-error')) {
+        process.exitCode = 2;
+      }
+    },
+  );
 
 program
   .command('init')

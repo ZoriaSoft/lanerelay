@@ -43,6 +43,30 @@ describe('detectLimit: claude', () => {
     const out = 'I fixed the handler that returned 429 when upstream throttles.\nDone.\n';
     expect(detect('claude', out, 0)).toBeNull();
   });
+
+  it('catches the headless "hit your limit · resets H:MMpm (TZ)" line', () => {
+    // Observed 2026: claude -p prints this exact banner on a capped session.
+    const out = `You've hit your limit · resets 9:10pm (Europe/Kiev)\n`;
+    const d = detect('claude', out, 1);
+    expect(d?.limited).toBe(true);
+    expect(d?.resetAt?.getHours()).toBe(21);
+    expect(d?.resetAt?.getMinutes()).toBe(10);
+  });
+
+  it('catches "hit your session limit" (headless report)', () => {
+    const out = `You've hit your session limit\n`;
+    expect(detect('claude', out, 1)?.limited).toBe(true);
+  });
+
+  it('does not fire on "Budget limit reached" (user budget, not quota)', () => {
+    const out = 'Budget limit reached for this run. Spawning stopped.\n';
+    expect(detect('claude', out, 1)).toBeNull();
+  });
+
+  it('does not fire on an "approaching limit" warning with same-line reset', () => {
+    const out = 'Approaching weekly limit — resets Friday at 9am. Continuing work.\nDone.\n';
+    expect(detect('claude', out, 0)).toBeNull();
+  });
 });
 
 describe('detectLimit: codex', () => {
@@ -64,6 +88,59 @@ describe('detectLimit: codex', () => {
     expect(d?.resetAt?.getMonth()).toBe(9);
     expect(d?.resetAt?.getDate()).toBe(22);
   });
+
+  it('catches the Plus upsell message with same-day clock reset', () => {
+    // codex-rs error.rs Display: plan Free → this exact sentence.
+    const out =
+      'You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at 4:20 PM.\n';
+    const d = detect('codex', out, 1);
+    expect(d?.limited).toBe(true);
+    expect(d?.resetAt?.getHours()).toBe(16);
+    expect(d?.resetAt?.getMinutes()).toBe(20);
+  });
+
+  it('catches the dated reset "Jul 19th, 2026 10:27 AM"', () => {
+    const out =
+      'You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), or try again at Jul 19th, 2026 10:27 AM.\n';
+    const d = detect('codex', out, 1);
+    expect(d?.limited).toBe(true);
+    expect(d?.resetAt?.getMonth()).toBe(6);
+    expect(d?.resetAt?.getDate()).toBe(19);
+    expect(d?.resetAt?.getHours()).toBe(10);
+    expect(d?.resetAt?.getMinutes()).toBe(27);
+  });
+
+  it('catches per-model usage limit ("usage limit for gpt-…")', () => {
+    const out = 'You’ve hit your usage limit for gpt-5.5-codex. Switch to another model now, or try again later.\n';
+    const d = detect('codex', out, 1);
+    expect(d?.limited).toBe(true);
+    expect(d?.resetAt).toBeNull(); // "try again later" gives no reset
+  });
+
+  it('catches workspace credit depletion', () => {
+    const out = 'Your workspace is out of credits. Add credits to continue.\n';
+    expect(detect('codex', out, 1)?.limited).toBe(true);
+  });
+
+  it('catches workspace spend cap', () => {
+    const out = 'You hit your spend cap set in your workspace. Increase your spend cap to continue.\n';
+    expect(detect('codex', out, 1)?.limited).toBe(true);
+  });
+
+  it('does not fire on "Selected model is at capacity" (transient)', () => {
+    const out = 'Selected model is at capacity. Please try a different model.\n';
+    expect(detect('codex', out, 1)).toBeNull();
+  });
+
+  it('does not fire on "agent thread limit reached" (concurrency cap)', () => {
+    const out = 'error: agent thread limit reached\n';
+    expect(detect('codex', out, 1)).toBeNull();
+  });
+
+  it('catches bare "Rate limit reached for gpt-…" org errors', () => {
+    const out = '[Error]: Rate limit reached for gpt-5.5-codex in organization org-abcd on tokens per min (TPM): Limit 30000, Used 29872, Requested 512.\n';
+    expect(detect('codex', out, 1)?.limited).toBe(true);
+  });
 });
 
 describe('detectLimit: gemini', () => {
@@ -79,6 +156,28 @@ describe('detectLimit: gemini', () => {
     const d = detect('gemini', out, 1);
     expect(d?.limited).toBe(true);
     expect(d?.resetAt?.getTime()).toBe(NOW.getTime() + 4 * 3_600_000);
+  });
+
+  it('catches the TerminalQuotaError daily-quota sentence (gemini-cli source)', () => {
+    // packages/core/src/utils/googleQuotaErrors.ts — PerDay/Daily violation.
+    const out = 'You have exhausted your daily quota on this model.\n';
+    expect(detect('gemini', out, 1)?.limited).toBe(true);
+  });
+
+  it('catches a one-line 429 RPC with embedded "Please retry in"', () => {
+    // The retry hint sits AFTER the cap string on the same JSON line — it is
+    // a suggested delay, not a recovery, so detection must still fire.
+    const out =
+      '{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota). Please retry in 34.07s","status":"RESOURCE_EXHAUSTED"}}\n';
+    const d = detect('gemini', out, 1);
+    expect(d?.limited).toBe(true);
+    expect(d?.resetAt?.getTime()).toBe(NOW.getTime() + 34_070);
+  });
+
+  it('still treats a next-line retry notice as recovery', () => {
+    const out =
+      'You have exhausted your daily quota on this model.\nretrying in 30 seconds\nall good now\n';
+    expect(detect('gemini', out, 0)).toBeNull();
   });
 });
 
@@ -136,6 +235,11 @@ describe('parseResetTime', () => {
     expect(parseResetTime('90 seconds', NOW)?.getTime()).toBe(NOW.getTime() + 90_000);
     expect(parseResetTime('an hour', NOW)?.getTime()).toBe(NOW.getTime() + 3_600_000);
     expect(parseResetTime('45s', NOW)?.getTime()).toBe(NOW.getTime() + 45_000);
+    // codex statusline "resets 143h26m" — compact composite
+    expect(parseResetTime('143h26m', NOW)?.getTime()).toBe(NOW.getTime() + 143 * 3_600_000 + 26 * 60_000);
+    // gemini RPC "Please retry in 34.07s" / "900ms"
+    expect(parseResetTime('34.07s', NOW)?.getTime()).toBe(NOW.getTime() + 34_070);
+    expect(parseResetTime('900ms', NOW)?.getTime()).toBe(NOW.getTime() + 900);
   });
 
   it('parses clock times, rolling past times to tomorrow', () => {

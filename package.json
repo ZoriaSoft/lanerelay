@@ -1,6 +1,6 @@
 {
   "name": "quota-pilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Run one coding task across several AI agent CLIs; when one lane hits its quota, the task hops to the next.",
   "license": "MIT",
   "type": "commonjs",

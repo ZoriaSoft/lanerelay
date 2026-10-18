@@ -41,9 +41,12 @@ export function parseResetTime(text: string, now: Date): Date | null {
     const d = new Date(epoch[1].length === 10 ? n * 1000 : n);
     if (d.getTime() > now.getTime() && d.getTime() - now.getTime() < 14 * 86_400_000) return d;
   }
-  // Composite duration: "1 hour 23 minutes", "40 min", "an hour", "90 seconds".
-  // NB: 'an|one' must be \b-guarded so "9am"/"Friday" don't leak an 'a'.
-  const dur = /(\d+(?:\.\d+)?|\ban\b|\bone\b)\s*(hours?|hrs?|hr|h|minutes?|mins?|m(?!s)|seconds?|secs?|s)\b/gi;
+  // Composite duration: "1 hour 23 minutes", "40 min", "an hour", "90 seconds",
+  // compact "143h26m", fractional "34.07s", "900ms".
+  // NB: 'an|one' must be \b-guarded so "9am"/"Friday" don't leak an 'a', and
+  // the unit needs (?![a-zA-Z]) not \b — a digit may legitimately follow it
+  // ("26m" after "143h"), while a letter means a different word ("4million").
+  const dur = /(\d+(?:\.\d+)?|\ban\b|\bone\b)\s*(hours?|hrs?|hr|h|minutes?|mins?|m(?!s)|seconds?|secs?|s|milliseconds?|msecs?|ms)(?![a-zA-Z])/gi;
   let ms = 0;
   let m: RegExpExecArray | null;
   let matched = false;
@@ -52,7 +55,8 @@ export function parseResetTime(text: string, now: Date): Date | null {
     const n = /^\d/.test(raw) ? parseFloat(raw) : 1;
     const unit = m[2].toLowerCase();
     matched = true;
-    if (unit.startsWith('h')) ms += n * 3_600_000;
+    if (unit.startsWith('ms') || unit.startsWith('mse') || unit.startsWith('milli')) ms += n;
+    else if (unit.startsWith('h')) ms += n * 3_600_000;
     else if (unit.startsWith('m')) ms += n * 60_000;
     else ms += n * 1_000;
   }
@@ -129,8 +133,10 @@ function evidenceLine(output: string, index: number): string {
  * Rules:
  * - No `limited` match in the tail window → not limited.
  * - A matching lane exit code → limited even without output match.
- * - A `notLimit` marker AFTER the last cap message means the lane retried
- *   internally and recovered → not limited.
+ * - A `notLimit` marker on a LATER line than the last cap message means the
+ *   lane retried internally and recovered → not limited.
+ * - A `notLimit` marker EARLIER on the SAME line is a qualifier
+ *   ("Approaching weekly limit", "Budget limit reached") → not limited.
  * - exitCode 0 with no explicit reset hint → transient the lane absorbed →
  *   not limited.
  * - An explicit cap message wins over earlier transient noise in the tail.
@@ -163,10 +169,22 @@ export function detectLimit(
   }
   if (lastHitIndex === -1) return null;
 
+  // A notLimit marker suppresses the hit in two cases:
+  //   1. It starts on a LATER line than the hit — the lane logged a recovery
+  //      ("retrying in 5s") after the cap message and went on working.
+  //   2. It sits on the SAME line but BEFORE the hit — a qualifier like
+  //      "Approaching weekly limit — resets Friday" or "Budget limit reached"
+  //      that only resembles a cap.
+  // A notLimit marker embedded AFTER the hit on the same line does NOT
+  // suppress: real 429 JSON carries both the cap reason and "Please retry
+  // in Ns" in one line, and that line means the lane IS limited.
+  const hitLineStart = outputTail.lastIndexOf('\n', lastHitIndex) + 1;
   for (const p of patterns.notLimit) {
     const g = p.global ? p : new RegExp(p.source, p.flags + 'g');
     for (const m of outputTail.matchAll(g)) {
-      if (m.index > lastHitIndex) return null;
+      const mLineStart = outputTail.lastIndexOf('\n', m.index) + 1;
+      if (mLineStart > hitLineStart) return null;
+      if (mLineStart === hitLineStart && m.index < lastHitIndex) return null;
     }
   }
 
