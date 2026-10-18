@@ -12,6 +12,7 @@ export const DEFAULTS = {
   timeoutMinutes: 0,
   stateFile: '.qp/state.json',
   logsDir: '.qp/logs',
+  runsDir: '.qp/runs',
   queueDir: '.qp/queue',
   pollSeconds: 3,
 } as const;

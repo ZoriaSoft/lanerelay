@@ -21,6 +21,8 @@ src/
   state.ts       .qp/state.json — lane blockedUntil, atomic writes
   queue.ts       .qp/queue/{pending,running,done,failed}/*.json, atomic claim
   hooks.ts       command + webhook notifications
+  runs.ts        .qp/runs/<id>.json — RunRecord per task execution, resume source
+  report.ts      qp report aggregation (lanes / queue / resumable / recent)
   status.ts      lane status rows
   init.ts        `qp init` starter config
 test/            vitest; detect.test.ts holds the pattern fixtures
@@ -43,6 +45,6 @@ test/            vitest; detect.test.ts holds the pattern fixtures
 
 ## Verify
 
-`npm test` and `npm run build` must pass. Smoke a lane end-to-end with a fake
-script (`kind: custom`, `command: ./fake.sh {{prompt}}`) before shipping
+`npm test` and `npm run build` must pass, then `test/smoke.sh` (needs dist/).
+It drives fake lanes end-to-end; add a `contains` check when shipping
 behavior changes.

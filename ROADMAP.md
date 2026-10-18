@@ -38,6 +38,20 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
 - [x] Runner fix: killed lanes whose grandchildren hold stdio no longer
       hang the run ('exit' grace period replaces 'close' wait).
 
+## Done (round 3)
+
+- [x] Task-level resume: `.qp/runs/<id>.json` records per run (task, chain,
+      pid, attempts, final status), rewritten after every attempt;
+      SIGINT/SIGTERM mark them `interrupted`. `qp run --resume <id>`
+      continues the recorded task with the prior attempts in the handoff;
+      superseded records are `resumed`, done/live/different-task resumes
+      refused. Record ids printed on run start and shown on queue items.
+- [x] `qp report` (+`--json`): per-lane attempt stats, queue outcomes,
+      resumable runs (copy-paste commands), recent runs. `qp status` lists
+      unfinished runs.
+- [x] `test/smoke.sh`: end-to-end shell smoke (build → fake lanes →
+      handoff/resume/SIGINT/watch/report).
+
 ## Next (priority order)
 
 1. [x] **Real-CLI fidelity pass** (partial, r2): codex/claude/gemini strings
@@ -50,13 +64,12 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
 3. [ ] **Cost-aware chain planning**: `paidFirst` is coarse; add optional
        `quotaLeft` estimates (parse `/usage`-style outputs where CLIs print
        remaining %) to pick the lane least likely to die mid-task.
-4. [ ] **Task-level resume**: persist the attempts of a `qp run` so a later
-       `qp run --resume <id>` continues instead of starting cold; show in
-       `qp queue`/`qp status`.
-5. [ ] **Parallel watch** (opt-in `--jobs N`): claim N queue items across
+4. [x] **Task-level resume** (r3): see Done (round 3). Follow-up idea:
+       `qp runs prune` to drop records older than N days.
+5. [x] **`qp report`** (r3): per-lane attempts + queue + resumable/recent.
+       Follow-up: `qp report --lane claude` drill-down / JSONL export.
+6. [ ] **Parallel watch** (opt-in `--jobs N`): claim N queue items across
        *different* lane sets with per-run state namespacing.
-6. [ ] **`qp report`**: per-lane success/limit history from `.qp/logs` +
-       queue results (which lane actually finishes work, how often each caps).
 7. [ ] TUI `qp top`: live lane grid (blocked countdowns, running task,
        queue depth). Consider blessed or raw ANSI — weigh dep cost.
 8. [ ] Homebrew/standalone binary packaging (bun compile or pkg) so non-Node

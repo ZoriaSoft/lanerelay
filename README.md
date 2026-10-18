@@ -67,6 +67,11 @@ qp run "task"
   don't redo it" + `git diff --stat` + tails of previous attempts. The next
   agent continues in the same working tree — changes are shared, not copied.
 - **Logs** for every attempt land in `.qp/logs/` regardless of `--quiet`.
+- **Run records** land in `.qp/runs/<id>.json`, rewritten after every
+  attempt. If `qp` is killed mid-task (Ctrl+C, OOM, power), the record is
+  marked `interrupted`; `qp run --resume <id>` continues the same task with
+  the full attempt history in the handoff. `qp report` and `qp status` show
+  what's resumable.
 
 ## Commands
 
@@ -75,11 +80,13 @@ qp run "task"
 | `qp init` | Write a starter `quota-pilot.yaml` (never overwrites). |
 | `qp run "task"` | Run the task through lanes; exit 0 done / 2 all-blocked / 3 failed / 4 wait-timeout. |
 | `qp run --chain a,b,c "task"` | Force a lane order, or a named chain from config. |
+| `qp run --resume <id>` | Continue an interrupted/failed/blocked run (ids in `qp report`). The next lane gets the full attempt history as handoff. |
 | `qp run --no-wait "task"` | Exit 2 instead of sleeping when every lane is blocked. |
-| `qp status` | `available` / `blocked until HH:MM (Nm)` / `unknown` per lane (`--json`). |
+| `qp status` | `available` / `blocked until HH:MM (Nm)` / `unknown` per lane, plus unfinished/resumable runs (`--json`). |
 | `qp probe <lane>` / `qp probe --all` | Send a tiny prompt to a lane and classify it: `available`, `limited` (learns the real reset time into state), `auth-error` (bad key/plan — blocked 24h so the watcher won't spin), `error`, `timeout`. Costs a little quota; exit 2 when any lane is limited/auth-error. `--prompt`, `--timeout <s>`, `--json`. |
+| `qp report` | Run history: per-lane attempt stats (done/limited/failed/timeout), queue outcomes, resumable runs, recent runs (`--json`). |
 | `qp add "task"` | Enqueue a task for the watcher. |
-| `qp queue` | List pending / running / done / failed items. |
+| `qp queue` | List pending / running / done / failed items (with the run record id). |
 | `qp watch` | Daemon: drain the queue one task at a time (`--once`, `--poll N`). |
 | `qp unblock [lane]` | Clear a lane's blocked state manually. |
 
@@ -109,6 +116,7 @@ defaults:
   maxWaitMinutes: 60             # cap on sleeping for a free lane
   stateFile: .qp/state.json
   logsDir: .qp/logs
+  runsDir: .qp/runs              # run history records for --resume/report
 
 queue:
   dir: .qp/queue
@@ -139,6 +147,9 @@ same values as `QP_*` env vars. Webhooks receive `{"event","lane","task","status
   add explicit patterns for anything exotic.
 - Waiting for a reset can exceed `maxWaitMinutes` only when `--no-wait` is
   off; the default cap is 60 minutes.
+- Resume is task-text-locked: `qp run --resume <id>` continues the *recorded*
+  task (pass a different task text and it's refused). A finished or
+  already-resumed run can't be resumed again.
 
 ## Development
 
@@ -146,6 +157,7 @@ same values as `QP_*` env vars. Webhooks receive `{"event","lane","task","status
 npm ci
 npm test          # vitest — pattern library + orchestration + queue
 npm run build     # tsc → dist/
+test/smoke.sh     # end-to-end: fake lanes, resume, watch, report
 ```
 
 MIT licensed. Issues and PRs welcome — new lane patterns for tools we

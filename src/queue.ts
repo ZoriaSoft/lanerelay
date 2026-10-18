@@ -12,6 +12,8 @@ export interface QueueItem {
   finishedAt?: string;
   result?: 'done' | 'failed' | 'all-blocked' | 'timeout';
   lane?: string;
+  /** .qp/runs/<id> record backing this item's execution. */
+  runId?: string;
   error?: string;
 }
 
@@ -69,11 +71,12 @@ export class TaskQueue {
     return null;
   }
 
-  finish(item: QueueItem, result: QueueItem['result'], extra?: { lane?: string; error?: string }): void {
+  finish(item: QueueItem, result: QueueItem['result'], extra?: { lane?: string; error?: string; runId?: string }): void {
     item.finishedAt = new Date().toISOString();
     item.result = result;
     item.lane = extra?.lane;
     item.error = extra?.error;
+    item.runId = extra?.runId;
     const file = `${item.id}.json`;
     const from = join(this.dir, 'running', file);
     const to = join(this.dir, result === 'done' ? 'done' : 'failed', file);

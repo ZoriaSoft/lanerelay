@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## 0.3.0 — 2026-10-18 (round 3)
+
+### Added
+
+- **Run records** (`.qp/runs/<id>.json`): every `qp run` / `qp watch` task
+  writes a record after each lane attempt — task, chain, pid, attempts with
+  output tails and reset times, final status. Killed mid-task (SIGINT,
+  SIGTERM, crash) the record surfaces as `interrupted`.
+- **`qp run --resume <id>`** continues an interrupted/failed/all-blocked
+  run: same recorded task (a different task text is refused), prior
+  attempts seeded into the handoff prompt so the next lane sees the full
+  history. Superseded records are marked `resumed` and can't be resumed
+  twice; live runs (pid check) and `done` runs are refused too.
+- **`qp report`** — aggregates records: per-lane attempt stats
+  (done/limited/failed/timeout + last attempt time), queue outcomes,
+  resumable runs as copy-paste commands, recent runs (`--json`).
+- `qp status` now lists unfinished/resumable runs; `--json` gains an
+  `unfinishedRuns` field. `qp queue` items carry the `runId` of their run
+  record.
+- `defaults.runsDir` config option (default `.qp/runs`).
+- `test/smoke.sh` — end-to-end shell smoke: handoff, failed-run resume,
+  SIGINT → interrupted → resume, watch/queue/report assertions.
+
+### Fixed
+
+- A `qp run` killed by SIGINT/SIGTERM previously left no trace: Node does
+  not fire `exit` under a signal's default disposition, so records now hook
+  the signals directly and exit with the conventional code.
+
 ## 0.2.0 — 2026-10-18 (round 2)
 
 ### Added

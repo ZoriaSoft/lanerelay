@@ -16,6 +16,17 @@ export interface OrchestrateOptions {
    * --no-wait overrides. Default true.
    */
   wait?: boolean;
+  /**
+   * Prior attempts of an earlier interrupted/failed run being continued.
+   * Seeded into the handoff so the next lane sees the full history.
+   */
+  resume?: AttemptResult[];
+  /**
+   * Called with the accumulated attempts after each lane attempt, then
+   * once more with the final verdict before runTask returns. Used by the
+   * CLI to persist a resumable run record.
+   */
+  onUpdate?: (attempts: AttemptResult[], verdict: TaskVerdict | null) => void;
   /** Injected for tests. */
   now?: () => Date;
   /** Sleep implementation (tests inject a no-op). */
@@ -46,7 +57,8 @@ export async function runTask(
   const wait = opts.wait ?? true;
   const maxWaitMs = (cfg.defaults?.maxWaitMinutes ?? DEFAULTS.maxWaitMinutes) * 60_000;
   const started = now().getTime();
-  const attempts: AttemptResult[] = [];
+  const attempts: AttemptResult[] = [...(opts.resume ?? [])];
+  const notify = opts.onUpdate ?? (() => {});
 
   for (;;) {
     const free = lanes.filter((l) => store.blockedUntil(l.name, now()) === null);
@@ -57,11 +69,15 @@ export async function runTask(
         .sort((a, b) => a.getTime() - b.getTime());
       const earliest = resets[0] ?? null;
       if (!wait || earliest === null) {
-        return { type: 'all-blocked', attempts, earliestReset: earliest };
+        const verdict: TaskVerdict = { type: 'all-blocked', attempts, earliestReset: earliest };
+        notify(attempts, verdict);
+        return verdict;
       }
       const waitMs = earliest.getTime() - now().getTime();
       if (now().getTime() - started + waitMs > maxWaitMs) {
-        return { type: 'timeout', attempts };
+        const verdict: TaskVerdict = { type: 'timeout', attempts };
+        notify(attempts, verdict);
+        return verdict;
       }
       const laneName = lanes.find((l) => store.blockedUntil(l.name, now())?.getTime() === earliest.getTime())?.name ?? 'a lane';
       process.stderr.write(`qp: all lanes blocked; waiting until ${earliest.toLocaleTimeString()} for ${laneName}\n`);
@@ -89,6 +105,7 @@ export async function runTask(
         attempts.push({ lane: lane.name, verdict: { type: 'timeout', outputTail: result.outputTail }, ...pick(result) });
         store.markResult(lane.name, 'timeout');
         await fireHooks(cfg.hooks, 'fail', { event: 'fail', lane: lane.name, task, status: 'timeout' });
+        notify(attempts, null);
         continue;
       }
 
@@ -118,6 +135,7 @@ export async function runTask(
           status: 'handoff',
           resetAt: resetAt.toISOString(),
         });
+        notify(attempts, null);
         continue;
       }
 
@@ -130,7 +148,9 @@ export async function runTask(
           task,
           status: 'done',
         });
-        return { type: 'done', lane: lane.name, attempts };
+        const verdict: TaskVerdict = { type: 'done', lane: lane.name, attempts };
+        notify(attempts, verdict);
+        return verdict;
       }
 
       attempts.push({
@@ -150,6 +170,7 @@ export async function runTask(
         task,
         status: `exit ${result.exitCode}`,
       });
+      notify(attempts, null);
       // Non-limit failure: try the next lane too — the handoff note carries
       // the error output so the next agent can pick up or start fresh.
     }
@@ -166,7 +187,9 @@ export async function runTask(
         last?.verdict.type === 'failed'
           ? `exit code ${last.verdict.exitCode}`
           : last?.verdict.type ?? 'unknown';
-      return { type: 'failed', attempts, lastError: msg };
+      const verdict: TaskVerdict = { type: 'failed', attempts, lastError: msg };
+      notify(attempts, verdict);
+      return verdict;
     }
   }
 }

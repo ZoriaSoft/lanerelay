@@ -28,13 +28,14 @@ devir notuyla bir sonraki hatta geçer.
 | `qp init` | Başlangıç `quota-pilot.yaml` yazar (üzerine yazmaz). |
 | `qp run "görev"` | Görevi hatlar boyunca koşturur; çıkış kodu: 0 bitti / 2 hepsi engelli / 3 hata / 4 bekleme zaman aşımı. |
 | `qp run --chain a,b,c "görev"` | Hat sırasını zorla veya config'teki isimli zinciri kullan. |
+| `qp run --resume <id>` | Kesilmiş/hatalı/engelli bir koşuyu devam ettir (id'ler `qp report`'ta). Sıradaki hat tüm deneme geçmişini devir notu olarak alır. |
 | `qp run --no-wait` | Tüm hatlar engelliyken uyumak yerine çık. |
-| `qp status` | Hat başına `available` / `blocked until HH:MM` / `unknown` (`--json`). |
+| `qp status` | Hat başına `available` / `blocked until HH:MM` / `unknown`, artı devam ettirilebilir koşular (`--json`). |
 | `qp probe <hat>` / `qp probe --all` | Hatta küçük bir deneme istemi gönderir: `available`, `limited` (gerçek sıfırlanma zamanını state'e yazar), `auth-error` (bozuk anahtar/plan — 24s engeller), `error`, `timeout`. `--prompt`, `--timeout <s>`, `--json`. |
+| `qp report` | Koşu geçmişi: hat başına deneme istatistikleri (done/limited/failed/timeout), kuyruk sonuçları, devam ettirilebilir koşular (`--json`). |
 | `qp add "görev"` | İzleyici için görevi kuyruğa ekle. |
-| `qp queue` | Bekleyen / çalışan / biten / hatalı öğeleri listele. |
+| `qp queue` | Bekleyen / çalışan / biten / hatalı öğeleri listele (koşu kaydı id'siyle). |
 | `qp watch` | Daemon: kuyruğu tek tek görev işleyerek tüket (`--once`, `--poll N`). |
-| `qp unblock [hat]` | Bir hattın engelli durumunu elle temizle. |
 
 ## Nasıl çalışır
 
@@ -50,6 +51,10 @@ devir notuyla bir sonraki hatta geçer.
   çalışma ağacında devam eder — değişiklikler kopyalanmaz, paylaşılır.
 - Hooks ile limit/devir/bitirme/hata olaylarına kabuk komutu veya webhook
   (JSON POST) bağlayabilirsiniz.
+- Koşu kayıtları `.qp/runs/<id>.json` altında tutulur ve her denemeden sonra
+  yeniden yazılır. `qp` görev ortasında öldürülürse (Ctrl+C, OOM) kayıt
+  `interrupted` olur; `qp run --resume <id>` aynı görevi tam deneme
+  geçmişiyle devam ettirir.
 
 Detaylı yapılandırma, limitler ve geliştirme notları için `README.md`'ye
 bakın. MIT lisansı.

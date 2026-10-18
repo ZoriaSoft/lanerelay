@@ -93,6 +93,8 @@ export interface Config {
     timeoutMinutes?: number;
     /** Directory for per-attempt logs. Default `.qp/logs`. */
     logsDir?: string;
+    /** Directory for per-run history records. Default `.qp/runs`. */
+    runsDir?: string;
     /** State file path. Default `.qp/state.json`. */
     stateFile?: string;
   };

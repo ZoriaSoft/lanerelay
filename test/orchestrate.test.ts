@@ -167,4 +167,60 @@ describe('runTask', () => {
     expect(v.attempts).toHaveLength(1);
     expect(v.attempts[0].lane).toBe('open');
   });
+
+  it('seeds a handoff from resume attempts so the next lane sees prior work', async () => {
+    const dir = workdir();
+    const cfgPath = cfg(dir, [
+      fakeLane(dir, 'next', 'printf \'%s\' "$1" > resume-prompt.txt; echo done; exit 0'),
+    ]);
+    const config = loadConfig(cfgPath);
+    const store = new LaneStore(join(dir, 'state.json'));
+    const prior = [
+      {
+        lane: 'dead-lane',
+        verdict: {
+          type: 'limited' as const,
+          outputTail: 'half-way there',
+          resetAt: new Date(),
+          evidence: 'quota',
+        },
+        exitCode: 1,
+        durationMs: 5,
+      },
+    ];
+    const v = await runTask('the task', config, orderLanes(config), store, {
+      cwd: dir,
+      resume: prior,
+      ...silent,
+    });
+    expect(v.type).toBe('done');
+    // verdict carries the full history: seeded attempt + the new one
+    expect(v.attempts).toHaveLength(2);
+    expect(v.attempts[0].lane).toBe('dead-lane');
+    const prompt = readFileSync(join(dir, 'resume-prompt.txt'), 'utf8');
+    expect(prompt).toContain('the task');
+    expect(prompt).toContain('dead-lane');
+    expect(prompt).toContain('half-way there');
+  });
+
+  it('calls onUpdate after every attempt and once with the final verdict', async () => {
+    const dir = workdir();
+    const cfgPath = cfg(dir, [
+      fakeLane(dir, 'limited', 'echo "rate limit, try again in 1 minute" >&2; exit 1', { kind: 'codex' }),
+      fakeLane(dir, 'hero', 'echo done; exit 0'),
+    ]);
+    const config = loadConfig(cfgPath);
+    const store = new LaneStore(join(dir, 'state.json'));
+    const calls: Array<{ attempts: number; verdict: string | null }> = [];
+    const v = await runTask('t', config, orderLanes(config), store, {
+      cwd: dir,
+      ...silent,
+      onUpdate: (attempts, verdict) => calls.push({ attempts: attempts.length, verdict: verdict?.type ?? null }),
+    });
+    expect(v.type).toBe('done');
+    expect(calls).toEqual([
+      { attempts: 1, verdict: null },
+      { attempts: 2, verdict: 'done' },
+    ]);
+  });
 });
