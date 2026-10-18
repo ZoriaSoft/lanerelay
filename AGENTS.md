@@ -1,0 +1,48 @@
+# AGENTS.md — quota-pilot
+
+## What this is
+
+`qp`: a Node 20+ TypeScript CLI that runs one coding task through a chain of
+agent CLIs (claude, codex, gemini, glm, aider, opencode, cursor, custom).
+When a lane hits its quota, output-pattern detection marks it blocked until
+its reset time and the task moves to the next lane with a handoff prompt.
+
+## Layout
+
+```
+src/
+  cli.ts         commander wiring — all commands live here
+  config.ts      YAML load/validate, lane ordering (paidFirst → priority)
+  patterns.ts    per-kind regex library (limited / notLimit / reset / exitCodes)
+  detect.ts      detectLimit + parseResetTime — pure, well-tested
+  orchestrate.ts runTask: lane loop, handoff, wait-for-reset
+  runner.ts      spawn + tee + ring-buffer tail + per-attempt logs
+  prompt.ts      handoff prompt composer; git.ts: diff summary
+  state.ts       .qp/state.json — lane blockedUntil, atomic writes
+  queue.ts       .qp/queue/{pending,running,done,failed}/*.json, atomic claim
+  hooks.ts       command + webhook notifications
+  status.ts      lane status rows
+  init.ts        `qp init` starter config
+test/            vitest; detect.test.ts holds the pattern fixtures
+```
+
+## Rules for changes
+
+- **Patterns are the product.** Any change to `patterns.ts`/`detect.ts` needs
+  realistic sample outputs in `detect.test.ts`. Never delete a test to make a
+  regex pass.
+- `detect.ts` and `parseResetTime` stay pure (inject `now`); no I/O.
+- State and queue writes are atomic (tmp + rename) — keep it that way.
+- Runtime deps: `commander`, `yaml` only. No new dependencies without a strong
+  reason — the tool must stay npx-installable and fast.
+- Commands never touch the network except `hooks.webhook` POSTs.
+- Node 20 compat: no `node:test`-only or 22-only APIs in `src/`.
+- English code/comments; README + README.tr.md stay in sync for features.
+- Never commit real paths, hostnames, tokens, or user data; examples use
+  fake values (`.qp/` is already gitignored).
+
+## Verify
+
+`npm test` and `npm run build` must pass. Smoke a lane end-to-end with a fake
+script (`kind: custom`, `command: ./fake.sh {{prompt}}`) before shipping
+behavior changes.

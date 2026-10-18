@@ -1,0 +1,176 @@
+import { detectLimit } from './detect.js';
+import { gitDiffSummary } from './git.js';
+import { fireHooks } from './hooks.js';
+import { mergePatterns } from './patterns.js';
+import { renderPrompt } from './prompt.js';
+import { runLane, type RunOptions } from './runner.js';
+import { LaneStore } from './state.js';
+import type { AttemptResult, Config, Lane, TaskVerdict } from './types.js';
+import { DEFAULTS } from './config.js';
+
+export interface OrchestrateOptions {
+  cwd: string;
+  runOpts?: Omit<RunOptions, 'cwd'>;
+  /**
+   * When every lane is blocked: wait for the earliest reset and retry.
+   * --no-wait overrides. Default true.
+   */
+  wait?: boolean;
+  /** Injected for tests. */
+  now?: () => Date;
+  /** Sleep implementation (tests inject a no-op). */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Run `task` through the ordered lanes. A lane that hits its limit is marked
+ * blocked until its reset time and the task — plus a handoff note — moves to
+ * the next free lane. A lane that fails without a limit also moves on (the
+ * handoff tells the next agent what happened); `done` ends the loop.
+ *
+ * When every lane is blocked, wait until the earliest reset (bounded by
+ * defaults.maxWaitMinutes) and resume — preferred lanes get the task back
+ * once their window rolls over.
+ */
+export async function runTask(
+  task: string,
+  cfg: Config,
+  lanes: Lane[],
+  store: LaneStore,
+  opts: OrchestrateOptions,
+): Promise<TaskVerdict> {
+  const now = opts.now ?? (() => new Date());
+  const sleep = opts.sleep ?? defaultSleep;
+  const wait = opts.wait ?? true;
+  const maxWaitMs = (cfg.defaults?.maxWaitMinutes ?? DEFAULTS.maxWaitMinutes) * 60_000;
+  const started = now().getTime();
+  const attempts: AttemptResult[] = [];
+
+  for (;;) {
+    const free = lanes.filter((l) => store.blockedUntil(l.name, now()) === null);
+    if (free.length === 0) {
+      const resets = lanes
+        .map((l) => store.blockedUntil(l.name, now()))
+        .filter((d): d is Date => d !== null)
+        .sort((a, b) => a.getTime() - b.getTime());
+      const earliest = resets[0] ?? null;
+      if (!wait || earliest === null) {
+        return { type: 'all-blocked', attempts, earliestReset: earliest };
+      }
+      const waitMs = earliest.getTime() - now().getTime();
+      if (now().getTime() - started + waitMs > maxWaitMs) {
+        return { type: 'timeout', attempts };
+      }
+      const laneName = lanes.find((l) => store.blockedUntil(l.name, now())?.getTime() === earliest.getTime())?.name ?? 'a lane';
+      process.stderr.write(`qp: all lanes blocked; waiting until ${earliest.toLocaleTimeString()} for ${laneName}\n`);
+      await sleep(waitMs + 250);
+      continue;
+    }
+
+    for (const lane of free) {
+      // A parallel run may have blocked it since `free` was computed.
+      if (store.blockedUntil(lane.name, now()) !== null) continue;
+      const prompt = renderPrompt({
+        task,
+        attempts,
+        cwd: opts.cwd,
+        diffSummary: gitDiffSummary(opts.cwd),
+      });
+      const result = await runLane(lane, prompt, {
+        cwd: opts.cwd,
+        tee: opts.runOpts?.tee,
+        logsDir: opts.runOpts?.logsDir,
+        tailBytes: opts.runOpts?.tailBytes,
+      });
+
+      if (result.timedOut) {
+        attempts.push({ lane: lane.name, verdict: { type: 'timeout', outputTail: result.outputTail }, ...pick(result) });
+        store.markResult(lane.name, 'timeout');
+        await fireHooks(cfg.hooks, 'fail', { event: 'fail', lane: lane.name, task, status: 'timeout' });
+        continue;
+      }
+
+      const patterns = mergePatterns(lane.kind, lane.patterns);
+      const detection = detectLimit(result.outputTail, result.exitCode, patterns, now());
+
+      if (detection) {
+        const resetAt =
+          detection.resetAt ?? new Date(now().getTime() + lane.defaultResetMinutes * 60_000);
+        attempts.push({
+          lane: lane.name,
+          verdict: { type: 'limited', outputTail: result.outputTail, resetAt, evidence: detection.evidence },
+          ...pick(result),
+        });
+        store.markBlocked(lane.name, resetAt, detection.evidence);
+        await fireHooks(cfg.hooks, 'limit', {
+          event: 'limit',
+          lane: lane.name,
+          task,
+          status: 'limited',
+          resetAt: resetAt.toISOString(),
+        });
+        await fireHooks(cfg.hooks, 'handoff', {
+          event: 'handoff',
+          lane: lane.name,
+          task,
+          status: 'handoff',
+          resetAt: resetAt.toISOString(),
+        });
+        continue;
+      }
+
+      if (result.exitCode === 0) {
+        attempts.push({ lane: lane.name, verdict: { type: 'done', outputTail: result.outputTail }, ...pick(result) });
+        store.markResult(lane.name, 'done');
+        await fireHooks(cfg.hooks, 'finish', {
+          event: 'finish',
+          lane: lane.name,
+          task,
+          status: 'done',
+        });
+        return { type: 'done', lane: lane.name, attempts };
+      }
+
+      attempts.push({
+        lane: lane.name,
+        verdict: {
+          type: 'failed',
+          outputTail: result.outputTail,
+          exitCode: result.exitCode,
+          evidence: `exit code ${result.exitCode}`,
+        },
+        ...pick(result),
+      });
+      store.markResult(lane.name, 'failed');
+      await fireHooks(cfg.hooks, 'fail', {
+        event: 'fail',
+        lane: lane.name,
+        task,
+        status: `exit ${result.exitCode}`,
+      });
+      // Non-limit failure: try the next lane too — the handoff note carries
+      // the error output so the next agent can pick up or start fresh.
+    }
+
+    // Every free lane was tried this round; nothing succeeded. Loop again:
+    // lanes blocked during this round are filtered out; if all are now
+    // blocked the wait logic above handles it; if all failed (not blocked),
+    // bail rather than spin.
+    const anyBlocked = lanes.some((l) => store.blockedUntil(l.name, now()) !== null);
+    const allFailed = lanes.every((l) => attempts.some((a) => a.lane === l.name));
+    if (!anyBlocked && allFailed) {
+      const last = attempts[attempts.length - 1];
+      const msg =
+        last?.verdict.type === 'failed'
+          ? `exit code ${last.verdict.exitCode}`
+          : last?.verdict.type ?? 'unknown';
+      return { type: 'failed', attempts, lastError: msg };
+    }
+  }
+}
+
+function pick(r: { exitCode: number | null; durationMs: number; logFile?: string }) {
+  return { exitCode: r.exitCode, durationMs: r.durationMs, logFile: r.logFile };
+}
