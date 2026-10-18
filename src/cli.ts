@@ -15,7 +15,6 @@ import type { AttemptResult, Config, Lane, TaskVerdict } from './types.js';
 
 interface Ctx {
   cfg: Config;
-  lanes: Lane[];
   store: LaneStore;
   queueDir: string;
   pollSeconds: number;
@@ -33,7 +32,6 @@ function loadCtx(cwd: string, configFlag?: string): Ctx {
   const d = { ...DEFAULTS, ...cfg.defaults };
   return {
     cfg,
-    lanes: orderLanes(cfg),
     store: new LaneStore(join(cwd, d.stateFile)),
     queueDir: join(cwd, cfg.queue?.dir ?? d.queueDir),
     pollSeconds: cfg.queue?.pollSeconds ?? d.pollSeconds,
@@ -115,7 +113,7 @@ const program = new Command();
 program
   .name('qp')
   .description('Run one coding task across several AI agent CLIs; quota-limit hits hand the task to the next lane.')
-  .version('0.3.0')
+  .version('0.4.0')
   .option('--config <path>', 'path to quota-pilot.yaml');
 
 program
@@ -183,7 +181,7 @@ program
         return;
       }
 
-      const lanes = chain ? orderLanes(ctx.cfg, chain) : ctx.lanes;
+      const lanes = chain ? orderLanes(ctx.cfg, chain) : orderLanes(ctx.cfg, undefined, ctx.store);
       const rec = ctx.runs.create({ task, chain, resumedFrom, attempts: resumeFrom });
       if (resumedRec) ctx.runs.markResumed(resumedRec, rec.id);
       process.stderr.write(`qp: run ${rec.id}${resumedFrom ? ` (resuming ${resumedFrom})` : ''}\n`);
@@ -208,7 +206,7 @@ program
   .addOption(new Option('--json', 'machine-readable output'))
   .action((opts: { json?: boolean }, cmd: Command) => {
     const ctx = loadCtx(process.cwd(), cmd.optsWithGlobals().config);
-    const rows = laneStatuses(ctx.lanes, ctx.store);
+    const rows = laneStatuses(orderLanes(ctx.cfg, undefined, ctx.store), ctx.store);
     const unfinished = ctx.runs.list().filter((r) => ctx.runs.resumable(r) || r.status === 'running');
     if (opts.json) {
       console.log(JSON.stringify({ lanes: rows, unfinishedRuns: unfinished.map((r) => r.id) }, null, 2));
@@ -252,6 +250,21 @@ program
     const ctx = loadCtx(process.cwd(), cmd.optsWithGlobals().config);
     const rep = buildReport(ctx.runs.list(), new TaskQueue(ctx.queueDir).list());
     console.log(opts.json ? JSON.stringify(rep, null, 2) : formatReport(rep));
+  });
+
+program
+  .command('prune')
+  .description('delete run records older than N days (default 30; live runs are never touched)')
+  .option('--days <n>', 'age cutoff in days', (v) => parseInt(v, 10), 30)
+  .action((opts: { days: number }, cmd: Command) => {
+    const ctx = loadCtx(process.cwd(), cmd.optsWithGlobals().config);
+    if (!Number.isFinite(opts.days) || opts.days < 1) {
+      process.stderr.write('qp: --days must be a positive integer\n');
+      process.exitCode = 1;
+      return;
+    }
+    const removed = ctx.runs.prune(opts.days);
+    console.log(removed.length > 0 ? `pruned ${removed.length} run record(s)` : 'nothing to prune');
   });
 
 program
@@ -309,7 +322,7 @@ program
       }
       process.stderr.write(`qp: running ${item.id}: ${item.task.slice(0, 80)}\n`);
       const chain = item.chain ?? opts.chain;
-      const lanes = chain ? orderLanes(ctx.cfg, chain) : ctx.lanes;
+      const lanes = chain ? orderLanes(ctx.cfg, chain) : orderLanes(ctx.cfg, undefined, ctx.store);
       const rec = ctx.runs.create({ task: item.task, chain });
       const orchOpts: OrchestrateOptions = {
         cwd,
@@ -357,7 +370,7 @@ program
 
       let lanes: Lane[];
       if (opts.all) {
-        lanes = ctx.lanes;
+        lanes = orderLanes(ctx.cfg, undefined, ctx.store);
       } else if (laneName) {
         const cfg = ctx.cfg.lanes.find((l) => l.name === laneName);
         if (!cfg) {
@@ -382,9 +395,9 @@ program
         });
         results.push(r);
         if (!opts.json) {
-          const reset =
-            r.resetAt !== null ? `, resets ${r.resetAt.toLocaleTimeString()}` : '';
-          console.log(`${r.lane.padEnd(14)} ${r.status.padEnd(11)} ${r.durationMs}ms  ${r.evidence}${reset}`);
+          const reset = r.resetAt !== null ? `, resets ${r.resetAt.toLocaleTimeString()}` : '';
+          const quota = r.quotaLeft !== null ? `, ${r.quotaLeft}% quota` : '';
+          console.log(`${r.lane.padEnd(14)} ${r.status.padEnd(11)} ${r.durationMs}ms  ${r.evidence}${reset}${quota}`);
         }
       }
       if (opts.json) console.log(JSON.stringify(results, null, 2));

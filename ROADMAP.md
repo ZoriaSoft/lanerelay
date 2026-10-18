@@ -52,6 +52,20 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
 - [x] `test/smoke.sh`: end-to-end shell smoke (build → fake lanes →
       handoff/resume/SIGINT/watch/report).
 
+
+## Done (round 4)
+
+- [x] Usage-aware chain planning: `detectUsage` parses quota gauges
+      ("usage: 72%", "12% of your weekly quota left", "used 40% of…",
+      per-lane `patterns.usage`/`usageUsed` overrides) into
+      `.qp/state.json`; `orderLanes` sorts free lanes inside a cost class
+      by remaining quota (rich first, unknown = 100, stale after 24h).
+      `qp status`/`qp probe` surface the reading; `qp unblock` clears it.
+- [x] `qp prune --days N` (default 30) removes aged run records; live runs
+      and corrupt files are skipped.
+- [x] Config validation now compiles `patterns.*` regexes at load — bad
+      patterns fail fast with the lane name.
+
 ## Next (priority order)
 
 1. [x] **Real-CLI fidelity pass** (partial, r2): codex/claude/gemini strings
@@ -61,11 +75,11 @@ Keep `quota-pilot` unless the owner prefers `pinchhitter`.
 2. [x] **`qp probe <lane>`** (r2): classifies the lane and writes learned
        resets/auth blocks to state. Open follow-up: `--learn` mode that
        writes observed patterns back into the lane's `patterns:` config.
-3. [ ] **Cost-aware chain planning**: `paidFirst` is coarse; add optional
-       `quotaLeft` estimates (parse `/usage`-style outputs where CLIs print
-       remaining %) to pick the lane least likely to die mid-task.
+3. [x] **Cost-aware chain planning** (r4): `quotaLeft` readings drive
+       ordering. Follow-up idea: `--learn` probes could refresh gauges
+       before runs; per-window gauges (session vs weekly) unmodeled.
 4. [x] **Task-level resume** (r3): see Done (round 3). Follow-up idea:
-       `qp runs prune` to drop records older than N days.
+      ~~`qp runs prune`~~ → shipped as `qp prune` (r4).
 5. [x] **`qp report`** (r3): per-lane attempts + queue + resumable/recent.
        Follow-up: `qp report --lane claude` drill-down / JSONL export.
 6. [ ] **Parallel watch** (opt-in `--jobs N`): claim N queue items across

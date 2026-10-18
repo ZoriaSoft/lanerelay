@@ -1,4 +1,4 @@
-import { detectLimit } from './detect.js';
+import { detectLimit, detectUsage } from './detect.js';
 import { mergePatterns } from './patterns.js';
 import { runLane, type RunOptions } from './runner.js';
 import type { LaneStore } from './state.js';
@@ -13,6 +13,8 @@ export interface ProbeResult {
   evidence: string;
   /** Parsed reset instant when the lane reported one. */
   resetAt: Date | null;
+  /** Quota % remaining when the lane printed a gauge; null otherwise. */
+  quotaLeft: number | null;
   exitCode: number | null;
   durationMs: number;
 }
@@ -89,14 +91,21 @@ export async function probeLane(
     tailBytes: opts.runOpts?.tailBytes,
   });
 
-  const base = { lane: lane.name, exitCode: result.exitCode, durationMs: result.durationMs };
+  const patterns = mergePatterns(lane.kind, lane.patterns);
+  const usage = detectUsage(result.outputTail, patterns);
+  if (usage) store.markUsage(lane.name, usage);
+  const base = {
+    lane: lane.name,
+    exitCode: result.exitCode,
+    durationMs: result.durationMs,
+    quotaLeft: usage?.pctLeft ?? null,
+  };
 
   if (result.timedOut) {
     store.markResult(lane.name, 'timeout');
     return { ...base, status: 'timeout', evidence: `probe timed out after ${Math.round(timeoutMs / 1000)}s`, resetAt: null };
   }
 
-  const patterns = mergePatterns(lane.kind, lane.patterns);
   const detection = detectLimit(result.outputTail, result.exitCode, patterns, now());
   if (detection) {
     const resetAt =

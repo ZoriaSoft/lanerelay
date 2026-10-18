@@ -94,6 +94,26 @@ function validateLane(lane: LaneConfig, seen: Set<string>, path: string): void {
   if (lane.cost !== undefined && lane.cost !== 'paid' && lane.cost !== 'free') {
     throw new ConfigError(`${path}: lane "${lane.name}": cost must be "paid" or "free"`);
   }
+  if (lane.patterns !== undefined) {
+    for (const [key, value] of Object.entries(lane.patterns)) {
+      if (key === 'exitCodes') {
+        if (!Array.isArray(value) || value.some((n) => typeof n !== 'number')) {
+          throw new ConfigError(`${path}: lane "${lane.name}": patterns.exitCodes must be a list of numbers`);
+        }
+        continue;
+      }
+      if (!Array.isArray(value)) {
+        throw new ConfigError(`${path}: lane "${lane.name}": patterns.${key} must be a list of regex strings`);
+      }
+      for (const s of value) {
+        try {
+          new RegExp(String(s));
+        } catch (e) {
+          throw new ConfigError(`${path}: lane "${lane.name}": patterns.${key} has an invalid regex: ${(e as Error).message}`);
+        }
+      }
+    }
+  }
 }
 
 /** Apply config defaults to a lane config. */
@@ -114,12 +134,20 @@ export function resolveLane(cfg: Config, lane: LaneConfig): Lane {
 
 const COST_ORDER = { paid: 0, free: 1 } as const;
 
+interface QuotaQuery {
+  /** Latest non-stale quota reading per lane name; null = unknown. */
+  quotaLeft(lane: string, now?: Date): number | null;
+}
+
 /**
  * Order lanes for a run. A numeric chain ("claude,codex,gemini") or a named
  * chain preserves the order given by the user. Otherwise lanes are ordered by
- * cost class (paid first when paidFirst) then priority then config order.
+ * cost class (paid first when paidFirst), then observed quota remaining
+ * (richest first — the lane least likely to die mid-task wins ties), then
+ * priority, then config order. Lanes without a recent reading count as 100%
+ * so ungauged lanes stay preferred over nearly-dry ones.
  */
-export function orderLanes(cfg: Config, chain?: string): Lane[] {
+export function orderLanes(cfg: Config, chain?: string, store?: QuotaQuery): Lane[] {
   const byName = new Map(cfg.lanes.map((l) => [l.name, l]));
   let ordered: LaneConfig[];
   if (chain) {
@@ -136,10 +164,13 @@ export function orderLanes(cfg: Config, chain?: string): Lane[] {
     });
   } else {
     const paidFirst = cfg.defaults?.paidFirst ?? DEFAULTS.paidFirst;
+    const now = new Date();
     ordered = [...cfg.lanes].sort((a, b) => {
       const ca = paidFirst ? COST_ORDER[a.cost ?? 'paid'] : 0;
       const cb = paidFirst ? COST_ORDER[b.cost ?? 'paid'] : 0;
       if (ca !== cb) return ca - cb;
+      const q = (store?.quotaLeft(b.name, now) ?? 100) - (store?.quotaLeft(a.name, now) ?? 100);
+      if (q !== 0) return q;
       return (a.priority ?? 0) - (b.priority ?? 0);
     });
   }

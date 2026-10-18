@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { AttemptResult } from './types.js';
@@ -160,5 +160,28 @@ export class RunStore {
     }
     out.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
     return out;
+  }
+
+  /**
+   * Delete records older than `days` (measured from finishedAt, or
+   * startedAt when the run never finished). Live runs — status 'running'
+   * with a live pid — and unreadable files are never touched.
+   * Returns the removed record ids.
+   */
+  prune(days: number, now: Date = new Date()): string[] {
+    const cutoff = now.getTime() - days * 86_400_000;
+    const removed: string[] = [];
+    if (!existsSync(this.dir)) return removed;
+    for (const f of readdirSync(this.dir).filter((f) => f.endsWith('.json'))) {
+      const p = join(this.dir, f);
+      const rec = this.readPath(p);
+      if (!rec) continue;
+      if (rec.status === 'running' && pidAlive(rec.pid)) continue;
+      const stamp = Date.parse(rec.finishedAt ?? rec.startedAt ?? '');
+      if (!Number.isFinite(stamp) || stamp >= cutoff) continue;
+      rmSync(p, { force: true });
+      removed.push(rec.id ?? f.replace(/\.json$/, ''));
+    }
+    return removed;
   }
 }

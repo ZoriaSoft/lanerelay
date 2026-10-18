@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -114,5 +114,36 @@ describe('RunStore', () => {
     expect(store.resumable(list[0])).toBe(true);
     // dead-pid reclassification is read-only — the file keeps its content
     expect(store.get(b.id)!.status).toBe('running');
+  });
+});
+
+describe('RunStore.prune', () => {
+  it('deletes records older than the cutoff, keeps fresh and live ones', () => {
+    const store = new RunStore(join(workdir(), 'runs'));
+    const old = store.create({ task: 'ancient' });
+    old.startedAt = '2020-01-01T00:00:00.000Z';
+    old.finishedAt = '2020-01-01T01:00:00.000Z';
+    old.status = 'done';
+    store.update(old);
+
+    const fresh = store.create({ task: 'new' });
+    store.finish(fresh, 'done');
+
+    const live = store.create({ task: 'live' });
+    live.startedAt = '2020-01-01T00:00:00.000Z'; // old but still ours: running pid
+    store.update(live);
+
+    const removed = store.prune(30);
+    expect(removed).toEqual([old.id]);
+    expect(store.get(old.id)).toBeNull();
+    expect(store.get(fresh.id)).not.toBeNull();
+    expect(store.get(live.id)).not.toBeNull();
+  });
+
+  it('skips unreadable record files', () => {
+    const dir = join(workdir(), 'runs');
+    const store = new RunStore(dir);
+    writeFileSync(join(dir, 'corrupt.json'), '{nope');
+    expect(store.prune(0)).toEqual([]);
   });
 });

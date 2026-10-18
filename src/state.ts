@@ -1,6 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+export interface UsageObservation {
+  /** Percentage of quota remaining as last reported by the lane (0–100). */
+  pctLeft: number;
+  /** ISO timestamp of the observation. */
+  observedAt: string;
+  /** Output line the reading came from. */
+  evidence: string;
+}
+
 export interface LaneState {
   /** ISO timestamp until which the lane is blocked; null/undefined = free. */
   blockedUntil?: string;
@@ -10,12 +19,17 @@ export interface LaneState {
   lastResult?: string;
   /** ISO timestamp of the last attempt. */
   lastRunAt?: string;
+  /** Last quota gauge the lane printed, when it did. */
+  usage?: UsageObservation;
 }
 
 interface StateFile {
   version: 1;
   lanes: Record<string, LaneState>;
 }
+
+/** Usage readings older than this are ignored for ordering (24h). */
+const USAGE_STALE_MS = 24 * 3_600_000;
 
 /**
  * Per-repo lane state persisted in `.qp/state.json`. Written atomically
@@ -59,6 +73,27 @@ export class LaneStore {
     return d;
   }
 
+  /**
+   * Last observed quota gauge for ordering; null when never seen or when
+   * the reading is older than the staleness window (resets refill quotas,
+   * so an old "3% left" must not haunt the lane after rollover).
+   */
+  quotaLeft(lane: string, now: Date = new Date()): number | null {
+    const u = this.lanes[lane]?.usage;
+    if (!u) return null;
+    const at = new Date(u.observedAt).getTime();
+    if (!Number.isFinite(at) || now.getTime() - at > USAGE_STALE_MS) return null;
+    return u.pctLeft;
+  }
+
+  markUsage(lane: string, reading: { pctLeft: number; evidence: string }): void {
+    this.lanes[lane] = {
+      ...this.lanes[lane],
+      usage: { pctLeft: reading.pctLeft, observedAt: new Date().toISOString(), evidence: reading.evidence },
+    };
+    this.save();
+  }
+
   markBlocked(lane: string, until: Date, reason: string): void {
     this.lanes[lane] = {
       ...this.lanes[lane],
@@ -80,17 +115,18 @@ export class LaneStore {
   }
 
   unblock(lane?: string): void {
+    const clear = (s?: LaneState) => {
+      if (!s) return;
+      delete s.blockedUntil;
+      delete s.blockedReason;
+      // A manual unblock usually means the window rolled over or the user
+      // swapped credentials — the old gauge is no longer trustworthy.
+      delete s.usage;
+    };
     if (lane === undefined) {
-      for (const s of Object.values(this.lanes)) {
-        delete s.blockedUntil;
-        delete s.blockedReason;
-      }
+      for (const s of Object.values(this.lanes)) clear(s);
     } else {
-      const s = this.lanes[lane];
-      if (s) {
-        delete s.blockedUntil;
-        delete s.blockedReason;
-      }
+      clear(this.lanes[lane]);
     }
     this.save();
   }

@@ -223,4 +223,17 @@ describe('runTask', () => {
       { attempts: 2, verdict: 'done' },
     ]);
   });
+
+  it('records the usage gauge a lane prints into the store', async () => {
+    const dir = workdir();
+    const lane = fakeLane(dir, 'a', 'echo "session usage: 3% left"\nexit 0');
+    const path = cfg(dir, [lane]);
+    const store = new LaneStore(join(dir, 'state.json'));
+    const verdict = await runTask('t', loadConfig(path), orderLanes(loadConfig(path)), store, {
+      cwd: dir,
+      ...silent,
+    });
+    expect(verdict.type).toBe('done');
+    expect(store.quotaLeft('a')).toBe(3);
+  });
 });

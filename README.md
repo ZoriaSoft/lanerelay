@@ -66,6 +66,10 @@ qp run "task"
 - **Handoff prompt** = your task + "previous agents already worked on this,
   don't redo it" + `git diff --stat` + tails of previous attempts. The next
   agent continues in the same working tree — changes are shared, not copied.
+- **Lane order** = cost class (paid first) → observed quota remaining →
+  priority. When a CLI prints a usage gauge ("usage: 72%", "12% of your
+  weekly quota left"), qp remembers it (24h staleness) and prefers the lane
+  least likely to die mid-task. Explicit `--chain` order always wins.
 - **Logs** for every attempt land in `.qp/logs/` regardless of `--quiet`.
 - **Run records** land in `.qp/runs/<id>.json`, rewritten after every
   attempt. If `qp` is killed mid-task (Ctrl+C, OOM, power), the record is
@@ -88,6 +92,7 @@ qp run "task"
 | `qp add "task"` | Enqueue a task for the watcher. |
 | `qp queue` | List pending / running / done / failed items (with the run record id). |
 | `qp watch` | Daemon: drain the queue one task at a time (`--once`, `--poll N`). |
+| `qp prune [--days N]` | Delete run records older than N days (default 30). |
 | `qp unblock [lane]` | Clear a lane's blocked state manually. |
 
 ## Configuration (`quota-pilot.yaml`)
@@ -106,7 +111,8 @@ lanes:
       limited: ["my custom limit msg"]
       notLimit: ["recovered ok"]
       reset: ["back at ([^.\\n]+)"]
-      exitCodes: [77]
+      usage: ["(\\d+)% left"]        # capture is REMAINING %
+      usageUsed: ["(\\d+)% used"]    # capture is USED % (left = 100 − used)
 
 chains:
   default: { lanes: [claude, codex, gemini] }
@@ -150,6 +156,8 @@ same values as `QP_*` env vars. Webhooks receive `{"event","lane","task","status
 - Resume is task-text-locked: `qp run --resume <id>` continues the *recorded*
   task (pass a different task text and it's refused). A finished or
   already-resumed run can't be resumed again.
+- Usage gauges are only honored when a lane prints one. Readings older than
+  24h are ignored (windows reset), and `qp unblock` clears the gauge too.
 
 ## Development
 

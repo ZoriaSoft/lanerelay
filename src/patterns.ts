@@ -14,6 +14,14 @@ export interface KindPatterns {
   limited: RegExp[];
   notLimit: RegExp[];
   reset: RegExp[];
+  /**
+   * Usage gauges a CLI prints (status lines, footer hints). Each pattern's
+   * first capture group must yield a percentage of quota REMAINING.
+   * Optional: kind tables leave it to GENERIC.
+   */
+  usage?: RegExp[];
+  /** Same as `usage`, but the capture is the percentage quota USED. */
+  usageUsed?: RegExp[];
   /** Exit codes meaning "limit" even without matching output. */
   exitCodes: number[];
 }
@@ -64,6 +72,24 @@ const GENERIC: KindPatterns = {
     re(String.raw`please retry in\s+([\d.]+\s*(?:ms|secs?|s|mins?|m|hrs?|h|seconds?|minutes?|hours?)?)`),
   ],
   exitCodes: [],
+  usage: [
+    // "(session )?(usage|quota) <n>% left|remaining", "usage has <n>% left"
+    re(String.raw`(?:session |weekly |daily )?(?:usage|quota)[^\d\n%]{0,30}?(\d{1,3})\s*%\s*(?:left|remain)`),
+    // "<n>% of your (weekly )?quota left", "<n>% usage remaining" — filler
+    // words (adjectives) allowed between the percent and the anchor word.
+    re(String.raw`(\d{1,3})\s*%[^\d\n%]{0,30}?(?:usage|quota|window|allowance|requests?)[^\d\n%]{0,20}?(?:left|remain)`),
+  ],
+  usageUsed: [
+    // "usage: <n>%", "quota=<n>%" — bare percent right after the word means
+    // "used", but NOT when a left/remaining qualifier follows.
+    re(String.raw`\b(?:usage|quota)[\s:=]{1,4}(\d{1,3})\s*%(?!\s*(?:left|remain))`),
+    // "quota used <n>%", "weekly limit consumed <n>%"
+    re(String.raw`(?:usage|quota|limit|allowance|requests?)[^\d\n%]{0,40}?(?:used|consumed)[^\d\n%]{0,15}?(\d{1,3})\s*%`),
+    // "used <n>% of your (weekly )?quota", "consumed <n>% of the window"
+    re(String.raw`(?:used|consumed)[^\d\n%]{0,15}?(\d{1,3})\s*%[^\d\n%]{0,30}?(?:usage|quota|limit|allowance|requests?)`),
+    // "<n>% of the (daily )?limit used", "<n>% quota consumed"
+    re(String.raw`(\d{1,3})\s*%[^\d\n%]{0,30}?(?:usage|quota|limit|allowance|requests?)[^\d\n%]{0,20}?(?:used|consumed)`),
+  ],
 };
 
 const CLAUDE: KindPatterns = {
@@ -192,7 +218,7 @@ const CURSOR: KindPatterns = {
   exitCodes: [],
 };
 
-const CUSTOM: KindPatterns = { limited: [], notLimit: [], reset: [], exitCodes: [] };
+const CUSTOM: KindPatterns = { limited: [], notLimit: [], reset: [], usage: [], usageUsed: [], exitCodes: [] };
 
 export const KIND_PATTERNS: Record<LaneKind, KindPatterns> = {
   claude: { ...GENERIC, limited: [...GENERIC.limited, ...CLAUDE.limited], notLimit: [...GENERIC.notLimit, ...CLAUDE.notLimit], reset: [...CLAUDE.reset, ...GENERIC.reset], exitCodes: CLAUDE.exitCodes },
@@ -214,5 +240,7 @@ export function mergePatterns(kind: LaneKind, extra?: LanePatterns): KindPattern
     notLimit: [...base.notLimit, ...(extra.notLimit ?? []).map(re)],
     reset: [...(extra.reset ?? []).map(re), ...base.reset],
     exitCodes: [...base.exitCodes, ...(extra.exitCodes ?? [])],
+    usage: [...(base.usage ?? []), ...(extra.usage ?? []).map(re)],
+    usageUsed: [...(base.usageUsed ?? []), ...(extra.usageUsed ?? []).map(re)],
   };
 }

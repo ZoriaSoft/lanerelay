@@ -175,4 +175,53 @@ contains report2.out '4 done' "report counts all runs"
 contains report2.out '2 resumed' "report counts superseded runs"
 pass "report aggregates runs"
 
+# --- 6. usage gauge drives lane order --------------------------------------
+cat > thirsty.sh <<'EOF'
+#!/bin/sh
+echo "session usage: 3% left"
+echo "$0" >> order.txt
+exit 1
+EOF
+cat > healthy.sh <<'EOF'
+#!/bin/sh
+echo "$0" >> order.txt
+exit 0
+EOF
+chmod +x thirsty.sh healthy.sh
+
+cat > quota-pilot.yaml <<EOF
+lanes:
+  - name: thirsty
+    kind: custom
+    command: "$WORK/thirsty.sh {{prompt}}"
+    priority: 0
+  - name: healthy
+    kind: custom
+    command: "$WORK/healthy.sh {{prompt}}"
+    priority: 5
+EOF
+
+# seed run: thirsty prints its 3% gauge, fails, healthy finishes
+$QP run "seed the gauge" -q >seed.out 2>seed.err || fail "seed run"
+grep -q '"pctLeft": 3' .qp/state.json || fail "usage reading not stored"
+# now healthy (no gauge = 100%) must be picked before thirsty (3%), despite
+# thirsty's lower priority number
+rm -f order.txt
+$QP run "ordered by quota" -q >order.out 2>order.err || fail "order run"
+FIRST=$(head -1 order.txt)
+[ "$FIRST" = "$WORK/healthy.sh" ] || { cat order.txt >&2; fail "healthy lane should run first"; }
+pass "usage gauge reorders lanes"
+
+# --- 7. prune removes aged run records --------------------------------------
+cat > .qp/runs/r-stale0000.json <<'EOF'
+{"id":"r-stale0000","task":"old","pid":1,"status":"done","startedAt":"2001-01-01T00:00:00.000Z","finishedAt":"2001-01-01T01:00:00.000Z","attempts":[]}
+EOF
+$QP prune --days 30 >prune.out 2>&1
+contains prune.out 'pruned 1 run record' "prune output"
+[ ! -f .qp/runs/r-stale0000.json ] || fail "stale record still present"
+$QP report >report4.out 2>&1 || fail "report after prune"
+contains report4.out 'runs:' "report still aggregates"
+pass "prune"
+
+
 printf 'all smoke checks passed\n'

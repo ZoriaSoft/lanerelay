@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## 0.4.0 — 2026-10-18 (round 4)
+
+### Added
+
+- **Usage-aware lane ordering.** When a lane prints a quota gauge in its
+  output ("usage: 72%", "12% of your weekly quota left", "used 40% of the
+  window"), qp records the freshest reading in `.qp/state.json` and, for
+  default (non-`--chain`) ordering, sorts free lanes inside a cost class by
+  remaining quota — the lane least likely to die mid-task now wins over a
+  lower `priority` one that is nearly dry. Explicit `--chain` order always
+  wins. New `patterns.usage` / `patterns.usageUsed` config lists capture
+  remaining/used percentages for exotic formats; generic patterns cover
+  "N% left", "N% remaining", "usage: N%", "used N% of …" shapes. Readings
+  go stale after 24h; `qp unblock` clears them.
+- `qp status` shows the last gauge per lane (`(42% quota)`); `qp probe`
+  records gauges too and reports them (`quotaLeft` in `--json`, suffix in
+  the console line).
+- `qp prune [--days N]` (default 30) deletes aged `.qp/runs/*.json` records;
+  live runs are never touched.
+
+### Fixed
+
+- `patterns.*` config strings are now validated as regexes at load time —
+  an invalid pattern fails fast with the lane name instead of crashing on
+  the first lane attempt.
+
 ## 0.3.0 — 2026-10-18 (round 3)
 
 ### Added

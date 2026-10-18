@@ -36,6 +36,7 @@ devir notuyla bir sonraki hatta geçer.
 | `qp add "görev"` | İzleyici için görevi kuyruğa ekle. |
 | `qp queue` | Bekleyen / çalışan / biten / hatalı öğeleri listele (koşu kaydı id'siyle). |
 | `qp watch` | Daemon: kuyruğu tek tek görev işleyerek tüket (`--once`, `--poll N`). |
+| `qp prune [--days N]` | N günden eski koşu kayıtlarını sil (varsayılan 30). |
 
 ## Nasıl çalışır
 
@@ -55,6 +56,10 @@ devir notuyla bir sonraki hatta geçer.
   yeniden yazılır. `qp` görev ortasında öldürülürse (Ctrl+C, OOM) kayıt
   `interrupted` olur; `qp run --resume <id>` aynı görevi tam deneme
   geçmişiyle devam ettirir.
+- Hat sırası = maliyet sınıfı (önce ücretli) → gözlenen kalan kota → öncelik.
+  CLI bir kullanım göstergesi yazdırırsa ("usage: 72%", "12% quota left")
+  qp bunu hatırlar (24 saat eskime) ve görev ortasında ölme ihtimali en düşük
+  hattı öne alır. Açık `--chain` sırası her zaman kazanır.
 
 Detaylı yapılandırma, limitler ve geliştirme notları için `README.md`'ye
 bakın. MIT lisansı.

@@ -23,6 +23,16 @@ export interface LanePatterns {
    * month-day dates ("Oct 22") and ISO timestamps.
    */
   reset?: string[];
+  /**
+   * Regex strings whose first capture group is a REMAINING quota percentage
+   * (e.g. "(\\d+)% left in your window"). Last match in the output wins.
+   */
+  usage?: string[];
+  /**
+   * Regex strings whose first capture group is a USED quota percentage
+   * (e.g. "used (\\d+)% of your weekly quota"). Left = 100 - used.
+   */
+  usageUsed?: string[];
   /** Exit codes that always mean "limit hit" regardless of output. */
   exitCodes?: number[];
 }

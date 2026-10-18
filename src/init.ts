@@ -13,6 +13,9 @@ lanes:
     priority: 0
     timeoutMinutes: 45
     defaultResetMinutes: 300      # 5-hour window if no reset time is detected
+    # patterns:                   # per-lane regex overrides (see README)
+    #   usage: ["(\\d+)% left"]    # capture REMAINING % → richer lanes run first
+    #   usageUsed: ["(\\d+)% used"]# capture USED % (left = 100 − used)
 
   - name: codex
     kind: codex

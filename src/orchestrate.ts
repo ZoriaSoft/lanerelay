@@ -1,4 +1,4 @@
-import { detectLimit } from './detect.js';
+import { detectLimit, detectUsage } from './detect.js';
 import { gitDiffSummary } from './git.js';
 import { fireHooks } from './hooks.js';
 import { mergePatterns } from './patterns.js';
@@ -101,6 +101,10 @@ export async function runTask(
         tailBytes: opts.runOpts?.tailBytes,
       });
 
+      const patterns = mergePatterns(lane.kind, lane.patterns);
+      const usage = detectUsage(result.outputTail, patterns);
+      if (usage) store.markUsage(lane.name, usage);
+
       if (result.timedOut) {
         attempts.push({ lane: lane.name, verdict: { type: 'timeout', outputTail: result.outputTail }, ...pick(result) });
         store.markResult(lane.name, 'timeout');
@@ -109,9 +113,7 @@ export async function runTask(
         continue;
       }
 
-      const patterns = mergePatterns(lane.kind, lane.patterns);
       const detection = detectLimit(result.outputTail, result.exitCode, patterns, now());
-
       if (detection) {
         const resetAt =
           detection.resetAt ?? new Date(now().getTime() + lane.defaultResetMinutes * 60_000);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectLimit, parseResetTime } from '../src/detect.js';
+import { detectLimit, detectUsage, parseResetTime } from '../src/detect.js';
 import { mergePatterns } from '../src/patterns.js';
 import type { LaneKind } from '../src/types.js';
 
@@ -269,5 +269,46 @@ describe('parseResetTime', () => {
   it('returns null on garbage', () => {
     expect(parseResetTime('soon™', NOW)).toBeNull();
     expect(parseResetTime('', NOW)).toBeNull();
+  });
+});
+
+describe('detectUsage', () => {
+  const use = (kind: LaneKind, output: string) => detectUsage(output, mergePatterns(kind));
+
+  it('reads "usage: NN%" as percent used', () => {
+    expect(use('claude', 'session usage: 72%')?.pctLeft).toBe(28);
+    expect(use('gemini', 'quota=40%')?.pctLeft).toBe(60);
+  });
+
+  it('reads explicit remaining/left forms', () => {
+    expect(use('codex', '12% of your weekly quota left')?.pctLeft).toBe(12);
+    expect(use('claude', 'session usage 3% remaining')?.pctLeft).toBe(3);
+  });
+
+  it('reads used-of-quota forms', () => {
+    expect(use('codex', 'used 40% of your quota')?.pctLeft).toBe(60);
+    expect(use('glm', '85% of the daily limit used')?.pctLeft).toBe(15);
+  });
+
+  it('prefers the last reading when the gauge moves', () => {
+    const out = 'usage: 60%\nworking…\nusage: 97%';
+    expect(use('claude', out)?.pctLeft).toBe(3);
+  });
+
+  it('ignores percentages that are not usage gauges', () => {
+    expect(use('claude', 'coverage: 80%\nprogress 45%\nI am 100% done')).toBeNull();
+    expect(use('claude', 'usage limit reached')).toBeNull();
+    expect(use('claude', '')).toBeNull();
+  });
+
+  it('clamps out-of-range percentages', () => {
+    expect(use('claude', 'usage: 140%')?.pctLeft).toBe(0);
+  });
+
+  it('honors per-lane usage patterns', () => {
+    const pats = mergePatterns('custom', { usage: ['window=(\\d+)%'] });
+    expect(detectUsage('stats window=66% done', pats)?.pctLeft).toBe(66);
+    const used = mergePatterns('custom', { usageUsed: ['burned (\\d+) pct'] });
+    expect(detectUsage('telemetry: burned 30 pct', used)?.pctLeft).toBe(70);
   });
 });

@@ -57,7 +57,13 @@ describe('loadConfig', () => {
       loadConfig(cfgFile('lanes:\n  - name: x\n    kind: bogus\n    command: "echo {{prompt}}"\n')),
     ).toThrow(/unknown kind/);
   });
+
+  it('rejects an invalid pattern regex with the lane name', () => {
+    const yaml = 'lanes:\n  - name: x\n    command: "echo {{prompt}}"\n    patterns:\n      usage: ["["]\n';
+    expect(() => loadConfig(cfgFile(yaml))).toThrow(/lane "x"[\s\S]*invalid regex/);
+  });
 });
+
 
 describe('orderLanes', () => {
   it('orders paid before free, then priority', () => {
@@ -84,6 +90,36 @@ describe('orderLanes', () => {
   it('unknown lane in chain throws', () => {
     const cfg = loadConfig(cfgFile(BASE));
     expect(() => orderLanes(cfg, 'a,zzz')).toThrow(/no lane named "zzz"/);
+  });
+
+  it('with quota readings, richest lane wins over priority inside a cost class', () => {
+    // a(paid,p0,3%), c(paid,p5,90%), b(free,p-1,unknown)
+    const dir = mkdtempSync(join(tmpdir(), 'qp-ord-'));
+    tmp.push(dir);
+    const store = new LaneStore(join(dir, 'state.json'));
+    store.markUsage('a', { pctLeft: 3, evidence: 'usage 3% left' });
+    store.markUsage('c', { pctLeft: 90, evidence: 'usage 90% left' });
+    const cfg = loadConfig(cfgFile(BASE));
+    expect(orderLanes(cfg, undefined, store).map((l) => l.name)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('ungauged lanes count as 100% but stay behind paid cost class', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qp-ord-'));
+    tmp.push(dir);
+    const store = new LaneStore(join(dir, 'state.json'));
+    store.markUsage('a', { pctLeft: 12, evidence: 'e' });
+    const cfg = loadConfig(cfgFile(BASE));
+    // c(paid, no reading → 100) beats a(paid, 12); b is free → always last
+    expect(orderLanes(cfg, undefined, store).map((l) => l.name)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('explicit chains ignore quota readings', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qp-ord-'));
+    tmp.push(dir);
+    const store = new LaneStore(join(dir, 'state.json'));
+    store.markUsage('b', { pctLeft: 99, evidence: 'e' });
+    const cfg = loadConfig(cfgFile(BASE));
+    expect(orderLanes(cfg, 'a,b', store).map((l) => l.name)).toEqual(['a', 'b']);
   });
 });
 
@@ -131,5 +167,21 @@ describe('LaneStore', () => {
     writeFileSync(path, '{not json');
     const store = new LaneStore(path);
     expect(store.blockedUntil('a')).toBeNull();
+  });
+  it('stores and expires usage readings', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qp-state-'));
+    tmp.push(dir);
+    const path = join(dir, 'state.json');
+    const store = new LaneStore(path);
+    store.markUsage('a', { pctLeft: 42, evidence: 'usage: 58%' });
+
+    const fresh = new LaneStore(path);
+    expect(fresh.quotaLeft('a')).toBe(42);
+    expect(fresh.quotaLeft('b')).toBeNull();
+    // readings older than 24h are stale — resets refill the gauge
+    expect(fresh.quotaLeft('a', new Date(Date.now() + 25 * 3_600_000))).toBeNull();
+    // manual unblock (window rolled over / creds swapped) clears the gauge
+    fresh.unblock('a');
+    expect(fresh.quotaLeft('a')).toBeNull();
   });
 });

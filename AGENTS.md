@@ -12,13 +12,14 @@ its reset time and the task moves to the next lane with a handoff prompt.
 ```
 src/
   cli.ts         commander wiring — all commands live here
-  config.ts      YAML load/validate, lane ordering (paidFirst → priority)
-  patterns.ts    per-kind regex library (limited / notLimit / reset / exitCodes)
-  detect.ts      detectLimit + parseResetTime — pure, well-tested
+  config.ts      YAML load/validate, lane ordering (paidFirst → quota → priority)
+  patterns.ts    per-kind regex library (limited / notLimit / reset /
+                 usage / usageUsed / exitCodes)
+  detect.ts      detectLimit + parseResetTime + detectUsage — pure, well-tested
   orchestrate.ts runTask: lane loop, handoff, wait-for-reset
   runner.ts      spawn + tee + ring-buffer tail + per-attempt logs
   prompt.ts      handoff prompt composer; git.ts: diff summary
-  state.ts       .qp/state.json — lane blockedUntil, atomic writes
+  state.ts       .qp/state.json — lane blockedUntil + usage gauge, atomic writes
   queue.ts       .qp/queue/{pending,running,done,failed}/*.json, atomic claim
   hooks.ts       command + webhook notifications
   runs.ts        .qp/runs/<id>.json — RunRecord per task execution, resume source

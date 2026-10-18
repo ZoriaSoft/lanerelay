@@ -206,3 +206,36 @@ function scanReset(outputTail: string, patterns: KindPatterns, now: Date): Date 
   }
   return null;
 }
+
+export interface UsageReading {
+  /** Percentage of quota REMAINING (0–100). */
+  pctLeft: number;
+  /** The output line the reading came from. */
+  evidence: string;
+}
+
+/**
+ * Parse the freshest usage gauge a lane printed ("usage: 72%",
+ * "12% of your weekly quota left", "used 40% of the window").
+ * The LAST match in the tail wins — CLIs re-print the gauge as it moves.
+ * Returns null when nothing recognizable was emitted.
+ */
+export function detectUsage(outputTail: string, patterns: KindPatterns): UsageReading | null {
+  let best: { index: number; pctLeft: number } | null = null;
+  for (const [list, used] of [
+    [patterns.usage ?? [], false],
+    [patterns.usageUsed ?? [], true],
+  ] as const) {
+    for (const p of list) {
+      const g = p.global ? p : new RegExp(p.source, p.flags + 'g');
+      for (const m of outputTail.matchAll(g)) {
+        const n = Number.parseFloat(m[1] ?? '');
+        if (!Number.isFinite(n)) continue;
+        const pctLeft = Math.min(100, Math.max(0, Math.round(used ? 100 - n : n)));
+        if (best === null || m.index > best.index) best = { index: m.index, pctLeft };
+      }
+    }
+  }
+  if (best === null) return null;
+  return { pctLeft: best.pctLeft, evidence: evidenceLine(outputTail, best.index) };
+}
