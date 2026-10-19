@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 380" width="960" height="380" role="img" aria-label="lanerelay: when one AI coding agent hits its usage limit, the task and a short handoff note move to the next agent.">
+<style>text{font-family:ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif} .m{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}@media (prefers-reduced-motion: reduce){*{animation-duration:0s!important}}#h1{opacity:0;animation:kh1 13.0s linear infinite}@keyframes kh1{0%{opacity:0}1.5%{opacity:0}3%{opacity:1}19%{opacity:1}20.5%{opacity:0}100%{opacity:0}}#s1{opacity:0;animation:ks1 13.0s linear infinite}@keyframes ks1{0%{opacity:0}1.5%{opacity:0}3%{opacity:1}19%{opacity:1}20.5%{opacity:0}100%{opacity:0}}#b1{opacity:0;animation:kb1 13.0s linear infinite}@keyframes kb1{0%{opacity:0}18.5%{opacity:0}20%{opacity:1}96%{opacity:1}97.5%{opacity:0}100%{opacity:0}}#x1{opacity:0;animation:kx1 13.0s linear infinite}@keyframes kx1{0%{opacity:0}18.5%{opacity:0}20%{opacity:1}96%{opacity:1}97.5%{opacity:0}100%{opacity:0}}#h2{opacity:0;animation:kh2 13.0s linear infinite}@keyframes kh2{0%{opacity:0}32.5%{opacity:0}34%{opacity:1}49%{opacity:1}50.5%{opacity:0}100%{opacity:0}}#s2{opacity:0;animation:ks2 13.0s linear infinite}@keyframes ks2{0%{opacity:0}32.5%{opacity:0}34%{opacity:1}49%{opacity:1}50.5%{opacity:0}100%{opacity:0}}#b2{opacity:0;animation:kb2 13.0s linear infinite}@keyframes kb2{0%{opacity:0}48.5%{opacity:0}50%{opacity:1}96%{opacity:1}97.5%{opacity:0}100%{opacity:0}}#x2{opacity:0;animation:kx2 13.0s linear infinite}@keyframes kx2{0%{opacity:0}48.5%{opacity:0}50%{opacity:1}96%{opacity:1}97.5%{opacity:0}100%{opacity:0}}#h3{opacity:0;animation:kh3 13.0s linear infinite}@keyframes kh3{0%{opacity:0}62.5%{opacity:0}64%{opacity:1}77%{opacity:1}78.5%{opacity:0}100%{opacity:0}}#s3{opacity:0;animation:ks3 13.0s linear infinite}@keyframes ks3{0%{opacity:0}62.5%{opacity:0}64%{opacity:1}77%{opacity:1}78.5%{opacity:0}100%{opacity:0}}#g3{opacity:0;animation:kg3 13.0s linear infinite}@keyframes kg3{0%{opacity:0}76.5%{opacity:0}78%{opacity:1}96%{opacity:1}97.5%{opacity:0}100%{opacity:0}}#x3{opacity:0;animation:kx3 13.0s linear infinite}@keyframes kx3{0%{opacity:0}76.5%{opacity:0}78%{opacity:1}96%{opacity:1}97.5%{opacity:0}100%{opacity:0}}#chipm{animation:kchipm 13.0s linear infinite}@keyframes kchipm{0%{transform:translateY(0px)}25%{transform:translateY(0px)}33%{transform:translateY(68px)}54%{transform:translateY(68px)}62%{transform:translateY(136px)}100%{transform:translateY(136px)}}#chipf{opacity:0;animation:kchipf 13.0s linear infinite}@keyframes kchipf{0%{opacity:0}22.5%{opacity:0}24%{opacity:1}63%{opacity:1}64.5%{opacity:0}100%{opacity:0}}#stat{opacity:0;animation:kstat 13.0s linear infinite}@keyframes kstat{0%{opacity:0}80.5%{opacity:0}82%{opacity:1}96%{opacity:1}97.5%{opacity:0}100%{opacity:0}}</style>
+<rect width="960" height="380" rx="14" fill="#0d1117"/>
+<text x="40" y="52" fill="#e6edf3" font-size="22" font-weight="600" text-anchor="start">lanerelay</text>
+<text x="178" y="52" fill="#8b949e" font-size="16" text-anchor="start">one task, many subscriptions</text>
+<text x="40" y="86" fill="#8b949e" font-size="15" text-anchor="start">When an agent hits its limit, the work moves to the next lane with a short note.</text>
+<rect x="40" y="114" width="190" height="196" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+<text x="60" y="144" fill="#e6edf3" font-size="15" font-weight="600" text-anchor="start">Task</text>
+<text class="m" x="60" y="172" fill="#8b949e" font-size="13" text-anchor="start">fix the failing</text>
+<text class="m" x="60" y="191" fill="#8b949e" font-size="13" text-anchor="start">login test</text>
+<text class="m" x="60" y="290" fill="#58a6ff" font-size="13" text-anchor="start">$ lr run</text>
+<line x1="262" y1="144" x2="262" y2="280" stroke="#30363d" stroke-width="1" stroke-dasharray="3 5"/>
+<line x1="230" y1="144" x2="300" y2="144" stroke="#30363d" stroke-width="2"/>
+<rect x="300" y="114" width="620" height="60" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+<text x="320" y="150" fill="#e6edf3" font-size="15" font-weight="600" text-anchor="start">Claude Code</text>
+<rect x="300" y="182" width="620" height="60" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+<text x="320" y="218" fill="#e6edf3" font-size="15" font-weight="600" text-anchor="start">Codex</text>
+<rect x="300" y="250" width="620" height="60" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+<text x="320" y="286" fill="#e6edf3" font-size="15" font-weight="600" text-anchor="start">opencode</text>
+<g id="h1"><rect x="300" y="114" width="620" height="60" rx="10" fill="none" stroke="#58a6ff" stroke-width="2.5"/></g>
+<g id="s1"><text class="m" x="900" y="150" fill="#58a6ff" font-size="13" text-anchor="end">working</text></g>
+<g id="b1"><rect x="300" y="114" width="620" height="60" rx="10" fill="none" stroke="#f85149" stroke-width="2.5"/></g>
+<g id="x1"><text class="m" x="900" y="150" fill="#f85149" font-size="13" text-anchor="end">limit · resets 03:00 UTC</text></g>
+<g id="h2"><rect x="300" y="182" width="620" height="60" rx="10" fill="none" stroke="#58a6ff" stroke-width="2.5"/></g>
+<g id="s2"><text class="m" x="900" y="218" fill="#58a6ff" font-size="13" text-anchor="end">working</text></g>
+<g id="b2"><rect x="300" y="182" width="620" height="60" rx="10" fill="none" stroke="#f85149" stroke-width="2.5"/></g>
+<g id="x2"><text class="m" x="900" y="218" fill="#f85149" font-size="13" text-anchor="end">limit · back at 06:41</text></g>
+<g id="h3"><rect x="300" y="250" width="620" height="60" rx="10" fill="none" stroke="#58a6ff" stroke-width="2.5"/></g>
+<g id="s3"><text class="m" x="900" y="286" fill="#58a6ff" font-size="13" text-anchor="end">working</text></g>
+<g id="g3"><rect x="300" y="250" width="620" height="60" rx="10" fill="none" stroke="#3fb950" stroke-width="2.5"/></g>
+<g id="x3"><text class="m" x="900" y="286" fill="#3fb950" font-size="13" text-anchor="end">done · exit 0</text></g>
+<g id="chipm"><g id="chipf"><rect x="236" y="133" width="52" height="22" rx="6" fill="#1f2a3a" stroke="#58a6ff"/><text class="m" x="262" y="148" fill="#58a6ff" font-size="12" text-anchor="middle">note</text></g></g>
+<g id="stat"><rect x="40" y="326" width="880" height="34" rx="8" fill="#161b22" stroke="#30363d"/><text class="m" x="58" y="348" fill="#58a6ff" font-size="13" text-anchor="start">$ lr status</text><text class="m" x="170" y="348" fill="#8b949e" font-size="13" text-anchor="start">claude: blocked till 03:00   codex: blocked till 06:41   opencode: ok</text></g>
+</svg>

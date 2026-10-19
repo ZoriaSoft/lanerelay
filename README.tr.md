@@ -1,5 +1,7 @@
 # lanerelay
 
+<p align="center"><img src="docs/flow.svg" alt="lanerelay: when one agent hits its limit, the task moves to the next lane" width="100%"></p>
+
 Tek bir kodlama görevini birden fazla AI ajan CLI'ı üzerinden koşturur —
 Claude Code, Codex, Gemini CLI, opencode, Aider, Cursor, GLM ya da kabuktan
 çağırabildiğiniz herhangi bir araç. Öndeki CLI kullanım limitine takılınca

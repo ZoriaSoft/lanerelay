@@ -1,5 +1,7 @@
 # lanerelay
 
+<p align="center"><img src="docs/flow.svg" alt="lanerelay: when one agent hits its limit, the task moves to the next lane" width="100%"></p>
+
 Run one coding task through a chain of AI agent CLIs — Claude Code, Codex,
 Gemini CLI, opencode, Aider, Cursor, GLM, or anything you can call from a
 shell. When the CLI in front hits its usage limit (5-hour window, weekly cap,
