@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
 import { join } from 'node:path';
 import type { Lane } from './types.js';
+import { buildWindowsSpawn, type WinResolver } from './winspawn.js';
 
 /** POSIX shell quoting: wraps in single quotes, escapes embedded ones. */
 export function shellQuote(s: string): string {
@@ -13,21 +14,27 @@ export interface SpawnSpec {
   args: string[];
   /** Rendered command after {{prompt}} substitution (logged, not spawned). */
   command: string;
+  /** Extra environment for the child (on top of LR_PROMPT). */
+  env?: Record<string, string>;
+  /** Windows: hand args to CreateProcess unquoted (pre-built cmd.exe line). */
+  verbatim?: boolean;
 }
 
 /**
  * How to run a lane's command template for `platform`:
- * - posix: `sh -c` with {{prompt}} single-quoted inline.
- * - win32: `cmd /d /s /c` with {{prompt}} becoming "%LR_PROMPT%". cmd.exe
- *   mangles long single-quoted text and caps a line near 8KB, so the prompt
- *   travels in the LR_PROMPT env var (also exported on posix for scripts).
+ * - posix: `sh -c` with {{prompt}} quoted for its shell context inline.
+ * - win32: see buildWindowsSpawn. Simple commands that resolve to an .exe
+ *   run without a shell; anything else goes through cmd.exe with the prompt
+ *   in a delayed-expansion variable, so cmd never parses prompt text.
+ * The prompt is also exported as LR_PROMPT for wrapper scripts.
  */
-export function buildSpawn(template: string, prompt: string, platform: NodeJS.Platform): SpawnSpec {
-  const slot = /\{\{\s*prompt\s*\}\}/g;
-  if (platform === 'win32') {
-    const command = template.replace(slot, '"%LR_PROMPT%"');
-    return { file: 'cmd', args: ['/d', '/s', '/c', command], command };
-  }
+export function buildSpawn(
+  template: string,
+  prompt: string,
+  platform: NodeJS.Platform,
+  winOpts: { cwd?: string; env?: NodeJS.ProcessEnv; resolve?: WinResolver } = {},
+): SpawnSpec {
+  if (platform === 'win32') return buildWindowsSpawn(template, prompt, winOpts);
   const command = substitutePosix(template, prompt);
   return { file: 'sh', args: ['-c', command], command };
 }
@@ -170,7 +177,7 @@ export async function killActiveLanes(graceMs = 3_000): Promise<void> {
 
 /** Run one lane attempt. Command template gets {{prompt}} substituted (quoted). */
 export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<RunResult> {
-  const spec = buildSpawn(lane.command, prompt, process.platform);
+  const spec = buildSpawn(lane.command, prompt, process.platform, { cwd: opts.cwd });
   const tail = new RingBuffer(opts.tailBytes ?? DEFAULT_TAIL);
   const tee = opts.tee ?? true;
   const started = Date.now();
@@ -182,7 +189,9 @@ export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<R
 
   const child = spawn(spec.file, spec.args, {
     cwd: opts.cwd,
-    env: { ...process.env, LR_PROMPT: prompt },
+    env: { ...process.env, LR_PROMPT: prompt, ...spec.env },
+    windowsVerbatimArguments: spec.verbatim ?? false,
+    windowsHide: true,
     // Never hand our stdin to a lane: headless agent CLIs (claude -p,
     // codex exec) otherwise wait for piped input or steal the terminal.
     stdio: ['ignore', 'pipe', 'pipe'],

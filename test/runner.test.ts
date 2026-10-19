@@ -25,11 +25,11 @@ describe('buildSpawn', () => {
     expect(spec.args[1]).toBe("echo 'x' 'x'");
   });
 
-  it('win32: cmd /d /s /c with the prompt via %LR_PROMPT%', () => {
-    const spec = buildSpawn('claude -p {{prompt}}', 'fix it', 'win32');
-    expect(spec.file).toBe('cmd');
-    expect(spec.args).toEqual(['/d', '/s', '/c', 'claude -p "%LR_PROMPT%"']);
-    // The prompt never lands in the command line (cmd quoting limits).
+  it('win32: delegates to buildWindowsSpawn (see winspawn.test.ts)', () => {
+    const spec = buildSpawn('claude -p {{prompt}} 2>NUL', 'fix it', 'win32', { resolve: () => null, env: {} });
+    expect(spec.file).toBe('cmd.exe');
+    expect(spec.args).toEqual(['/d /v:on /s /c "claude -p "!LR_PROMPT_ARG!" 2>NUL"']);
+    // The prompt never lands in the cmd.exe command line.
     expect(spec.command).not.toContain('fix it');
   });
 });
