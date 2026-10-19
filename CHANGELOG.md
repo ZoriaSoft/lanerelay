@@ -1,5 +1,54 @@
 # CHANGELOG
 
+## 0.9.0 — 2026-10-19
+
+Renamed to **lanerelay** (was `quota-pilot`). Bins: `lanerelay` and `lr`.
+Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
+(`LR_PROMPT`, `LR_CONFIG`, hook `LR_LANE`/`LR_TASK`/…).
+
+### Fixed (found by running real CLIs)
+
+- Lane children inherited lanerelay's stdin: `claude -p` waited 3 s for
+  piped input on every attempt and `opencode run` hung until its timeout.
+  Lanes now get no stdin.
+- Ctrl-C left the running agent CLI alive (lanes run in their own process
+  group, so the terminal's SIGINT never reached them). SIGINT/SIGTERM/SIGHUP
+  now stop every running lane group (SIGTERM, SIGKILL after 3 s), and the run
+  record stays `interrupted` instead of being overwritten as `failed`.
+- A lane that failed or timed out was retried every round while the other
+  lanes waited for their reset. It is now tried once per run.
+- Handoff prompts nested: Codex echoes its prompt, so each handoff carried
+  the previous one. Tails now drop echoed prompts and ANSI codes and keep
+  the last 30 lines; `.lanerelay/` files are left out of the diff summary;
+  the note no longer claims every earlier attempt hit a usage limit.
+- Reset times with a zone ("resets 3am (UTC)", "(Europe/Kiev)") were read
+  in the machine's zone.
+- Starter config used `codex exec --full-auto`, which Codex CLI 0.163
+  rejects; now `codex exec --sandbox workspace-write`.
+- `Promise.withResolvers` (Node 22+) was used despite `engines: >=20`;
+  typecheck now targets ES2023.
+
+### Changed
+
+- Limit detection scans only the last 60 non-empty output lines; bare
+  `429` and topic mentions of "rate limit(ing)" no longer count; an auth or
+  login error on or after the cap line means "not a limit". Failed lanes
+  with auth evidence report `auth error (exit N): …`.
+- `.lanerelay/state.json` writes are read-modify-write under a lock file;
+  concurrent runs no longer drop each other's lane updates.
+- Hook commands: `{{var}}` now expands to `${LR_VAR:-}` instead of pasting
+  the value, so task text can't inject shell code.
+- `lanerelay status`: dates for resets that aren't today, `21h28m`-style
+  countdowns, `(last attempt: failed|timeout)` hints.
+- `--version` reads package.json; `watch.lock` is created with O_EXCL.
+
+### Tests
+
+- Real CLI output fixtures (`test/fixtures/real/`) for limit, auth and
+  generic-error cases; false-positive tests; cancel (process group, CLI
+  SIGINT end-to-end); concurrent state writers; hook injection; handoff
+  tails. The suite pins `TZ=UTC`.
+
 ## 0.8.0 — 2026-10-18 (round 8)
 
 ### Added

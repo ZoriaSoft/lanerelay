@@ -1,13 +1,30 @@
 # ROADMAP
 
-## Name proposal
+## Name
 
-**pinchhitter** — free on npm and GitHub (checked 2026-10-18), captures the
-relief-substitution mechanic (a pinch hitter bats when the starter can't).
-Current name `lanerelay` collides with `singledevai-droid/openclaw-lanerelay`
-(an OpenClaw/VS Code quota plugin). Runner-up `runrelay` also free but the
-"relay" space is crowded (bethvourc/agent--relay, ACNoonan/relay-cli).
-Keep `lanerelay` unless the owner prefers `pinchhitter`.
+Renamed from `quota-pilot` to `lanerelay` in 0.9.0 (the old name collides
+with an existing npm package). CLI: `lanerelay`, short alias `lr`.
+
+## Done (0.9.0 — real-CLI hardening)
+
+- [x] Real-CLI validation against Claude Code 2.1.302, Codex CLI 0.163.0,
+      opencode 1.18.14; sanitized outputs live in `test/fixtures/real/`.
+- [x] Lanes get no stdin (headless CLIs used to wait on it or hang).
+- [x] Ctrl-C/SIGTERM stops the running lane's process group and keeps the
+      run record `interrupted`.
+- [x] Locked read-modify-write for `.lanerelay/state.json`.
+- [x] Detection only scans the last 60 lines; auth errors and topic
+      mentions of "rate limit" / bare `429` are no longer limits.
+- [x] Zone-aware reset parsing ("resets 3am (UTC)").
+- [x] Clean handoff tails (no nested prompts, no ANSI, no `.lanerelay/`
+      noise); a failed/timed-out lane is not retried within one run.
+- [x] Hook templating can't inject shell code.
+
+## Open
+
+- Live validation for Gemini CLI, Aider, Cursor, GLM lanes.
+- Windows end-to-end run (only unit-tested today).
+- Optional per-lane `stdin: inherit` for CLIs that need a TTY.
 
 ## Done (round 1)
 

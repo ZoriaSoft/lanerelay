@@ -1,25 +1,46 @@
 # lanerelay
 
-`lanerelay` — tek görev, birden fazla AI kodlama CLI'ı. Öndeki CLI 5 saatlik
-penceresini, haftalık kotasını veya bir 429'u doldurduğunda, `lanerelay` o hattı
-sıfırlanma zamanına kadar engelli olarak işaretler; görevi (o ana kadar
-yapılanlar ve mevcut `git diff` özetiyle birlikte) sıradaki hatta devreder.
-Tercih edilen hattın sıfırlanma süresi geçince yeni iş yine ona döner.
+Tek bir kodlama görevini birden fazla AI ajan CLI'ı üzerinden koşturur —
+Claude Code, Codex, Gemini CLI, opencode, Aider, Cursor, GLM ya da kabuktan
+çağırabildiğiniz herhangi bir araç. Öndeki CLI kullanım limitine takılınca
+(5 saatlik pencere, haftalık kota, 429) lanerelay o hattı sıfırlanma
+zamanına kadar engelli işaretler ve görevi kısa bir devir notuyla sıradaki
+hatta verir: ne denendi, nasıl bitti, çalışma ağacında ne değişti. Tercih
+edilen hat sıfırlanınca yeni iş yine ona döner.
 
-Claude Code, Codex, Gemini CLI, GLM, OpenCode, Aider, Cursor... Her birinin
-kendi kota penceresi var. `lanerelay`, abonelikler sıfırlanırken görevinizi
-durmadan ilerleten röle koşucusudur.
+Küçük, yerel bir Node CLI'ıdır. API trafiğine proxy olmaz, kimlik bilgisi
+saklamaz, hesap değiştirmez — yalnızca zaten kurulu CLI'larınızı çalıştırır
+ve yazdıklarını okur.
 
-## 30 saniyelik başlangıç
+## Hızlı başlangıç
+
+Node 20+ ve oturumu açık en az bir ajan CLI'ı gerekir.
 
 ```bash
-npx lanerelay init        # claude/codex/gemini hatlarıyla lanerelay.yaml yazar
-# lane komutlarını kurulu CLI'larınıza göre düzenleyin
-npx lanerelay run "src/parser içindeki bozuk testi düzelt"
+npm install -g lanerelay        # `lanerelay` ve kısa adı `lr` kurulur
+cd projeniz
+lanerelay init                  # lanerelay.yaml yazar (claude/codex/gemini hatları)
+lanerelay doctor                # config'i ve her hattın CLI'ının PATH'te olduğunu kontrol eder
+lanerelay run "src/parser içindeki bozuk testi düzelt"
+lanerelay status                # hangi hat ne zamana kadar, neden engelli
 ```
 
-`lanerelay` ilk hattı çalıştırır; kullanım limiti mesajıyla çıkarsa görev bir
-devir notuyla bir sonraki hatta geçer.
+`lanerelay.yaml` içindeki hat komutlarını elinizdeki CLI'lara göre
+düzenleyin. Kurulum yapmadan `npx lanerelay …` da çalışır.
+
+## Farkı ne
+
+| Araç | Ne yapar | Ne zaman onu seçmeli |
+|---|---|---|
+| [claudexor](https://github.com/razzant/claudexor) | Claude Code, Codex, Cursor, OpenCode için tam bir kontrol düzlemi (daemon, macOS uygulaması, MCP): çoklu hesap kota rotasyonu, ortak konuşma bağlamı, çapraz model inceleme. | Hesap havuzu ve inceleme içeren bir orkestrasyon platformu istiyorsanız. |
+| [caam](https://github.com/Dicklesworthstone/coding_agent_account_manager) | Aynı CLI'ın hesapları arasında kayıtlı OAuth bilgilerini anında değiştirir; `caam run` limitte komutu başka hesapla tekrar dener. | Aynı CLI için birden çok aboneliğiniz varsa. |
+| [agentswap](https://github.com/bojieli/agentswap) | Claude Code / Codex'i abonelikler, API anahtarları ve sağlayıcılar arasında yerel proxy ile aktarır, sıfırlanmayı bekler, oturumları araçlar arasında taşır. | CLI'ın altında şeffaf yedekleme ve tam oturum aktarımı istiyorsanız. |
+| Claude Code `--fallback-model` | Yerleşik: varsayılan model aşırı yüklü/erişilemezse başka bir *Claude* modeline geçer. | Sadece Claude Code kullanıyor ve sorun kota değil yoğunluksa. |
+| **lanerelay** | *Farklı* ajan CLI'larını aynı çalışma ağacında art arda koşturur; limiti çıktıdan anlar, hat başına sıfırlanma zamanını hatırlar, görevi metin notuyla devreder; gözetimsiz çalışma için kuyruk + izleyici. | Birkaç farklı CLI'a para veriyor ve tek görevin aralarında ilerlemesini istiyorsanız — proxy, daemon, kimlik yönetimi olmadan. |
+
+lanerelay şunları **yapmaz**: tek bir CLI'ın hesaplarını döndürmek, API
+trafiğini proxy'lemek, CLI'ın kendi oturumunu taşımak, bir göreve aynı anda
+birden fazla ajan koşturmak.
 
 ## Komutlar
 
@@ -45,35 +66,39 @@ devir notuyla bir sonraki hatta geçer.
 
 ## Nasıl çalışır
 
-- Her CLI için desen kütüphanesi (`src/patterns.ts`) alt sürecin çıktısının
-  son kısmını kota/429/RESOURCE_EXHAUSTED mesajları için tarar; sıfırlanma
-  zamanını `try again in 40 minutes`, `resets at 12pm`, `retryDelay:"45s"`,
-  `reached|<epoch>`, ISO tarihleri gibi biçimlerden çözer. Geçici hatalar
-  (`overloaded_error`, 5xx, yeniden denenen 429'lar) limit sayılmaz.
-- Durum `.lanerelay/state.json` dosyasında tutulur: hangi hat engelli, ne zamana
-  kadar, neden.
-- Devir istemi = göreviniz + "önceki ajanlar bunu zaten denedi" notu +
-  `git diff --stat` + önceki denemelerin çıktı kuyrukları. Sonraki ajan aynı
-  çalışma ağacında devam eder — değişiklikler kopyalanmaz, paylaşılır.
-- Hooks ile limit/devir/bitirme/hata olaylarına kabuk komutu veya webhook
-  (JSON POST) bağlayabilirsiniz.
-- Koşu kayıtları `.lanerelay/runs/<id>.json` altında tutulur ve her denemeden sonra
-  yeniden yazılır. `lanerelay` görev ortasında öldürülürse (Ctrl+C, OOM) kayıt
-  `interrupted` olur; `lanerelay run --resume <id>` aynı görevi tam deneme
-  geçmişiyle devam ettirir.
-- Hat sırası = maliyet sınıfı (önce ücretli) → gözlenen kalan kota → öncelik.
-  CLI bir kullanım göstergesi yazdırırsa ("usage: 72%", "12% quota left")
-  lanerelay bunu hatırlar (gösterge penceresine göre ayrı ayrı: oturum 8s, günlük
-  36s, haftalık 9g, aylık 35g, etiketsiz 24s eskime) ve görev ortasında
-  ölme ihtimali en düşük hattı öne alır — birden fazla gösterge varsa en
-  kötü penceresi kazanır. Açık `--chain` sırası her zaman kazanır.
-- Hat kilitleri `.lanerelay/leases/<hat>.json` altında tutulur ve eşzamanlılığı
-  güvenli kılar: her deneme o hattın kilidini alır (atomik dosya, ölü
-  süreçler geri kazanılır). Böylece `lanerelay watch --jobs 2` ile eşzamanlı bir
-  `lanerelay run` aynı aboneliği iki görev için aynı anda tüketmez.
-- Windows'ta lane komutları `cmd /c` ile çalışır ve istem `%LR_PROMPT%`
-  ortam değişkeniyle gelir; POSIX'te `LR_PROMPT` da export edilir.
+- Her CLI için desen kütüphanesi (`src/patterns.ts`) hattın yazdığı son 60
+  dolu satırı tarar ve yalnızca hüküm bildiren ifadelere bakar ("hit your
+  usage limit", "rate limit exceeded", "HTTP 429" …). Rate limiting'den
+  bahseden bir ajan ya da `:429:` geçen bir hata izi limit sayılmaz.
+  Oturum/kimlik hataları ("Not logged in", "401 Unauthorized") asla limit
+  sayılmaz: hat başarısız olur, sıradaki hat çalışır.
+- Sıfırlanma zamanı `try again in 40 minutes`, `resets 3am (UTC)`,
+  `retryDelay:"45s"`, `reached|<epoch>`, ISO tarihleri gibi biçimlerden
+  çözülür; saat dilimi yazıyorsa o dilimde okunur.
+- Durum `.lanerelay/state.json` dosyasında tutulur; yazmalar kilit dosyası
+  altında yapılır, iki eşzamanlı koşu birbirinin kaydını ezmez.
+- Devir istemi = göreviniz + "başka bir ajan bunu denedi, bitmiş işi
+  tekrarlama" notu + `git diff --stat` + önceki denemelerin son satırları
+  (ANSI kodları ve önceki devir isteminin yankısı temizlenmiş). Sonraki
+  ajan aynı çalışma ağacında devam eder.
+- Limit dışı bir hatayla düşen ya da zaman aşımına uğrayan hat o koşuda bir
+  daha denenmez.
+- Ctrl-C çalışan hattın tüm süreç grubunu durdurur (SIGTERM, 3 sn sonra
+  SIGKILL) ve koşuyu `interrupted` işaretler; `lanerelay run --resume <id>`
+  ile devam edilir.
+- Hook komutlarında `{{task}}` gibi değişkenler `${LR_TASK:-}` kabuk
+  açılımına çevrilir; görev metni kabuk kodu enjekte edemez.
 
-Detaylı yapılandırma, limitler ve geliştirme notları için `README.md`'ye
-bakın. Node'suz çalışan tek dosyalık ikililer `scripts/compile.sh`
-(bun build --compile) ile üretilir. MIT lisansı.
+## Sınırlar
+
+- Algılama çıktı okumaya dayanır. CLI ifadesini değiştirirse limit
+  `limited` yerine `failed` görünür; o hat için `patterns.limited` ekleyin.
+  Desenler Claude Code 2.1, Codex CLI 0.163 ve opencode 1.18'in gerçek
+  çıktısıyla doğrulandı (`test/fixtures/real/`); Gemini, Aider, Cursor, GLM
+  desenleri kaynak koddan/dokümandan, canlı denemeden değil.
+- Dilimsiz saat ("try again at 6:41 AM") makinenin yerel saatiyle okunur.
+- Devir metindir, oturum durumu değildir.
+- Windows yolu yalnızca birim testleriyle kapsanıyor.
+
+Detaylı yapılandırma ve geliştirme notları için `README.md`'ye bakın. MIT
+lisansı.

@@ -47,6 +47,12 @@ test/            vitest; detect.test.ts holds the pattern fixtures
   regex pass.
 - `detect.ts` and `parseResetTime` stay pure (inject `now`); no I/O.
 - State and queue writes are atomic (tmp + rename) — keep it that way.
+  `state.json` mutations also go through `withFileLock` (read-modify-write).
+- Lane children never get our stdin (`stdio: ['ignore', …]`) and must stay
+  registered in runner's active set so signals can stop them.
+- Real CLI output samples live in `test/fixtures/real/` (sanitized). New
+  CLI versions → add a fixture, never edit an existing one.
+- Tests run with `TZ=UTC` (vitest.config.ts).
 - Runtime deps: `commander`, `yaml` only. No new dependencies without a strong
   reason — the tool must stay npx-installable and fast.
 - Commands never touch the network except `hooks.webhook` POSTs.

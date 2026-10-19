@@ -1,37 +1,79 @@
 # lanerelay
 
-`lanerelay` — one task, several AI coding CLIs. When the CLI in front hits its
-5-hour window, weekly cap, or a 429, `lanerelay` marks that lane blocked until its
-reset time, hands the task (plus a note about what was already done and the
-current `git diff`) to the next lane, and keeps working. When the preferred
-lane's reset passes, new work goes back to it.
+Run one coding task through a chain of AI agent CLIs — Claude Code, Codex,
+Gemini CLI, opencode, Aider, Cursor, GLM, or anything you can call from a
+shell. When the CLI in front hits its usage limit (5-hour window, weekly cap,
+429), lanerelay marks that lane blocked until its reset time and hands the
+task to the next lane with a short handoff note: what was tried, how it
+ended, and what changed in the working tree. When the preferred lane resets,
+new work goes back to it.
 
-You pay for Claude Code, Codex, Gemini CLI, GLM, OpenCode, Aider, Cursor...
-Each has its own quota windows. `lanerelay` is the relay runner that keeps your
-task moving while subscriptions roll over.
+It is a small, local, dependency-light Node CLI. It does not proxy API
+traffic, store credentials or switch accounts — it only runs the CLIs you
+already have and reads what they print.
 
-## Why not the alternatives
-
-| Tool kind | Examples | What they do vs lanerelay |
-|---|---|---|
-| API proxies / key rotators | claude-code-router, ccNexus, teamclaude, quotaswitch | Intercept API calls, rotate keys/accounts for *one* tool. lanerelay drives the *CLIs themselves*, across vendors, and carries task context forward. |
-| Multi-account switchers | claude-swap, claude-wrapper | Swap between accounts of the *same* provider. lanerelay hops between *different* agent CLIs and models. |
-| Session movers / TUIs | agenthop, agent-hop, agent--relay, claude-squad | Let you manually migrate or multiplex sessions. lanerelay is automatic: it detects the limit in the output, computes the reset, and retries unattended — including while you sleep (`lanerelay watch`). |
-| Quota monitors | quota-monitor, cc-usage | Show usage, notify. lanerelay acts on the limit instead of just reporting it. |
-
-The difference in one line: those tools watch or re-route *credentials*;
-lanerelay relays the *work item*, with handoff context, across heterogeneous CLIs.
-
-## 30-second quickstart
-
-```bash
-npx lanerelay init        # writes lanerelay.yaml with claude/codex/gemini lanes
-# edit the lane commands to match your installed CLIs
-npx lanerelay run "fix the failing test in src/parser"
+```
+lanerelay run "fix the failing test in src/parser"
+  claude    → "You've hit your weekly limit · resets 3am (UTC)"  → blocked until 03:00 UTC
+  codex     → "You’ve hit your usage limit … try again at 6:41 AM" → blocked until 06:41
+  opencode  → done
 ```
 
-That's it. `lanerelay` runs the first lane; if it exits with a usage-limit
-message, the task moves on to the next lane with a handoff note.
+(That is a real run from the validation notes below, trimmed.)
+
+## Quickstart
+
+Needs Node 20+ and at least one agent CLI that is already logged in.
+
+```bash
+npm install -g lanerelay        # installs `lanerelay` and the short alias `lr`
+cd your-repo
+lanerelay init                  # writes lanerelay.yaml (claude/codex/gemini lanes)
+lanerelay doctor                # checks the config and that each lane's CLI is on PATH
+lanerelay run "fix the failing test in src/parser"
+lanerelay status                # which lanes are blocked, until when, and why
+```
+
+Edit the lane commands in `lanerelay.yaml` to match the CLIs you actually
+have; delete lanes you don't use. `npx lanerelay …` works too without a
+global install.
+
+A lane is a shell command with a `{{prompt}}` slot. Headless forms that work
+with current CLI versions:
+
+```yaml
+lanes:
+  - name: claude
+    kind: claude
+    command: "claude -p {{prompt}} --permission-mode acceptEdits"
+  - name: codex
+    kind: codex
+    command: "codex exec --sandbox workspace-write {{prompt}}"
+  - name: opencode
+    kind: opencode
+    cost: free
+    command: "opencode run {{prompt}}"
+```
+
+lanerelay never gives a lane your terminal's stdin, so headless CLIs that
+would otherwise wait for piped input (`claude -p`, `codex exec`,
+`opencode run`) start immediately.
+
+## How it differs
+
+There are good tools in this space; pick the one whose model fits you.
+
+| Tool | What it does | When to pick it instead |
+|---|---|---|
+| [claudexor](https://github.com/razzant/claudexor) | Full control plane (daemon, macOS app, MCP) for Claude Code, Codex, Cursor, OpenCode: multi-account quota rotation, shared thread context, best-of-N races with cross-model review. | You want an orchestration platform with account pools and review, and can run its daemon (Node 24+). |
+| [caam](https://github.com/Dicklesworthstone/coding_agent_account_manager) | Swaps saved OAuth credentials between accounts of the same CLI in milliseconds; `caam run` retries a command on another account after a rate limit. | You have several subscriptions for the *same* CLI and want to rotate accounts. |
+| [agentswap](https://github.com/bojieli/agentswap) | Local proxy that fails Claude Code / Codex over across subscriptions, API keys and providers, waits through resets, and translates whole sessions between harnesses. | You want transparent failover under the CLI and full session transfer. |
+| Claude Code `--fallback-model` | Built-in: switches to another *Claude* model when the default one is overloaded or unavailable. | You only use Claude Code and the problem is overload, not your quota. |
+| **lanerelay** | Runs *different* agent CLIs one after another on the same working tree; detects limits from their output, remembers reset times per lane, hands the task over with a text note; queue + watcher for unattended runs. | You pay for several different CLIs and want one task to keep moving across them, with no proxy, daemon or credential handling. |
+
+What lanerelay does **not** do: rotate accounts of one CLI, proxy or
+inspect API traffic, transfer a CLI's native session/conversation, or run
+several agents on one task at once.
 
 ## How it works
 
@@ -63,9 +105,12 @@ lanerelay run "task"
   "Budget limit reached") don't trigger it.
 - **State** lives in `.lanerelay/state.json` in the repo: which lane is blocked,
   until when, and why. `lanerelay status` shows it; `lanerelay unblock` clears it.
-- **Handoff prompt** = your task + "previous agents already worked on this,
-  don't redo it" + `git diff --stat` + tails of previous attempts. The next
-  agent continues in the same working tree — changes are shared, not copied.
+- **Handoff prompt** = your task + "another agent already worked on this,
+  don't redo finished work" + `git diff --stat` (lanerelay's own
+  `.lanerelay/` files left out) + the last lines of each earlier attempt,
+  with ANSI codes and any echo of an earlier handoff prompt stripped. The
+  next agent continues in the same working tree — changes are shared, not
+  copied.
 - **Lane order** = cost class (paid first) → observed quota remaining →
   priority. When a CLI prints usage gauges ("usage: 72%", "12% of your
   weekly quota left"), lanerelay tracks each quota window separately
@@ -155,8 +200,11 @@ hooks:
   fail: []                       # a lane failed without a limit
 ```
 
-Command hooks get `{{lane}} {{task}} {{status}} {{resetAt}}` templated and the
-same values as `LR_*` env vars. Webhooks receive `{"event","lane","task","status","resetAt","ts"}`.
+Command hooks run under `sh -c`. `{{lane}} {{task}} {{status}} {{resetAt}}`
+become shell expansions of the matching `LR_*` env vars (`{{task}}` →
+`${LR_TASK:-}`), so a task text can never inject shell code; put them inside
+double quotes as in the example. Webhooks receive
+`{"event","lane","task","status","resetAt","ts"}`.
 
 Lane command templates substitute `{{prompt}}` inline under `sh -c` on POSIX;
 on Windows they run via `cmd /c` and the prompt arrives in `%LR_PROMPT%`
@@ -165,33 +213,72 @@ exported on POSIX, so wrapper scripts can read it instead of the argv slot.
 
 ## Limits (the honest list)
 
-- Detection is output-parsing. CLIs that change their limit wording silently
-  become `failed`, not `limited` — add a `patterns.limited` regex per lane to
-  adapt. If no reset time parses, `defaultResetMinutes` applies.
-- One watcher per repo (enforced by `.lanerelay/watch.lock`). The queue is serial
-  unless `--jobs N` / `queue.jobs` > 1 — then tasks run in parallel but
-  never two on the same lane (leases).
-- Handoff is text, not session state: the next agent gets the task, the diff
-  summary, and output tails — not the previous agent's conversation memory.
-- `kind: custom` only gets the generic patterns (429 / rate limit / quota);
-  add explicit patterns for anything exotic.
-- Waiting for a reset can exceed `maxWaitMinutes` only when `--no-wait` is
-  off; the default cap is 60 minutes.
-- Resume is task-text-locked: `lanerelay run --resume <id>` continues the *recorded*
-  task (pass a different task text and it's refused). A finished or
-  already-resumed run can't be resumed again.
-- Usage gauges are only honored when a lane prints one. Each window's
-  reading expires on its own TTL (session 8h, daily 36h, weekly 9d,
-  monthly 35d, unlabeled 24h) since windows reset; `lanerelay unblock` clears the
-  gauges too.
+- **Detection is output parsing.** Only the last 60 non-empty lines a lane
+  prints are scanned, and only for phrases that read as a verdict ("hit
+  your usage limit", "rate limit exceeded", "HTTP 429", …) — an agent that
+  merely talks about rate limiting, or a stack trace with `:429:`, is not a
+  limit. Auth and login errors ("Not logged in", "401 Unauthorized") are
+  never treated as limits: the lane fails and the next one runs. When a CLI
+  changes its wording, a limit shows up as `failed` instead of `limited`;
+  add a `patterns.limited` regex for that lane. The built-in patterns were
+  checked against real output of Claude Code 2.1, Codex CLI 0.163 and
+  opencode 1.18 (see `test/fixtures/real/`); Gemini CLI, Aider, Cursor and
+  GLM patterns come from their source code and docs, not live runs.
+- **Reset times.** A reset with a zone ("resets 3am (UTC)", "9:10pm
+  (Europe/Kyiv)") is read in that zone. A bare clock time ("try again at
+  6:41 AM") is read in your machine's local zone — if a CLI prints it in
+  another zone the block can be off by your UTC offset. If no reset
+  parses, `defaultResetMinutes` (default 60) applies; `lanerelay unblock`
+  clears a block early.
+- **Handoff is text, not session state.** The next agent gets the task, a
+  `git diff --stat` (or the bounded patch with `--diff full`) and the last
+  ~30 lines of each earlier attempt — not the previous agent's
+  conversation. It works in the same tree, so file changes carry over.
+- **A failing lane is tried once per run.** A lane that exits non-zero
+  without a limit, or times out, is skipped for the rest of that run (the
+  next lane gets the error in its handoff). Blocked lanes come back after
+  their reset when `--no-wait` is off; waiting is capped by
+  `maxWaitMinutes` (default 60).
+- **Cancel.** Ctrl-C (SIGINT/SIGTERM/SIGHUP) stops the running lane's whole
+  process group — SIGTERM, then SIGKILL after 3 s — and marks the run
+  `interrupted`; `lanerelay run --resume <id>` continues it. A second
+  Ctrl-C skips the grace period. On Windows the tree is killed with
+  `taskkill /T /F`.
+- **Concurrency.** Lane state writes are read-modify-write under a lock
+  file, so two `lanerelay` processes in one repo don't lose each other's
+  blocks; per-lane leases stop two runs from using the same lane at once.
+  One `lanerelay watch` per repo.
+- `kind: custom` gets only the generic patterns.
+- Resume is tied to the recorded task text; a finished or already-resumed
+  run can't be resumed again.
+- Usage gauges are only used when a lane prints one, and each reading
+  expires with its window (session 8h, daily 36h, weekly 9d, monthly 35d,
+  unlabeled 24h).
+- POSIX shells are the tested path. Windows support (`cmd /c`, prompt in
+  `%LR_PROMPT%`) is covered by unit tests only.
+
+## Real-CLI validation
+
+Checked on Linux with Claude Code 2.1.302, Codex CLI 0.163.0 and opencode
+1.18.14, using a scratch git repo and a "reply with OK" task:
+
+- claude and codex were both out of quota: each was detected as `limited`
+  with the right reset, blocked, and the task moved on; opencode (free
+  model) finished it. `lanerelay status` showed both blocks with reasons.
+- Logged-out claude, logged-out codex (401), an unknown model on both, and
+  a broken opencode config were all classified as errors, not limits.
+- Ctrl-C during a lane left no lane process behind.
+
+The captured outputs (sanitized) are test fixtures in
+`test/fixtures/real/`.
 
 ## Development
 
 ```bash
 npm ci
-npm test          # vitest — pattern library + orchestration + queue
+npm test          # vitest — patterns, real-CLI fixtures, orchestration, cancel, locking
 npm run build     # tsc → dist/
-test/smoke.sh     # end-to-end: fake lanes, resume, deferrals, watch, report
+npm run smoke     # end-to-end with fake lanes: resume, deferrals, watch, report (needs dist/)
 ```
 
 ### Standalone binary (no Node at runtime)
@@ -205,5 +292,6 @@ Built with `bun build --compile` (falls back to `npx bun` when bun isn't on
 PATH). The binary is self-contained (~90 MB) — every `lanerelay` command works
 without Node installed.
 
-MIT licensed. Issues and PRs welcome — new lane patterns for tools we
-haven't seen are especially useful.
+MIT licensed. Issues and PRs welcome — real limit/error output from CLI
+versions not covered in `test/fixtures/real/` is the most useful thing you
+can send (strip ids and paths first).
