@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { replaceFileSync } from './fsatomic.js';
 import type { AttemptResult } from './types.js';
 
 export type RunStatus =
@@ -62,7 +63,7 @@ export class RunStore {
     const tmp = `${this.path(rec.id)}.${process.pid}.tmp`;
     // Dates inside attempts serialize to ISO; reads revive resetAt.
     writeFileSync(tmp, JSON.stringify(rec, null, 2) + '\n');
-    renameSync(tmp, this.path(rec.id));
+    replaceFileSync(tmp, this.path(rec.id));
   }
 
   private readPath(path: string): RunRecord | null {

@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 
 - The lockfile lists the esbuild/rollup binaries for every platform, so
   `npm ci` works on Windows and macOS.
+- Windows: state, run-record and queue writes retry the final rename while
+  another lanerelay process has the file open (EPERM); concurrent runs
+  could crash or lose a lane update.
 - Tests that do not need a POSIX shell run on Windows; the fake-lane suites
   are skipped there.
 

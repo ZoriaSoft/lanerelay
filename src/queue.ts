@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { replaceFileSync } from './fsatomic.js';
 
 export interface QueueItem {
   id: string;
@@ -153,7 +154,7 @@ export class TaskQueue {
   private writeTo(path: string, item: QueueItem): void {
     const tmp = `${path}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(item, null, 2) + '\n');
-    renameSync(tmp, path);
+    replaceFileSync(tmp, path);
   }
 }
 

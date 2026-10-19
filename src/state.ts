@@ -1,5 +1,6 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { replaceFileSync } from './fsatomic.js';
 
 import type { QuotaWindow } from './detect.js';
 
@@ -297,7 +298,7 @@ export class LaneStore {
     mkdirSync(dirname(this.path), { recursive: true });
     const tmp = `${this.path}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify({ version: 1, lanes: this.lanes }, null, 2) + '\n');
-    renameSync(tmp, this.path);
+    replaceFileSync(tmp, this.path);
     try {
       this.mtimeMs = statSync(this.path).mtimeMs;
     } catch {
