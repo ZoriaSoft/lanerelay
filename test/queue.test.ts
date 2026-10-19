@@ -8,7 +8,7 @@ import type { AttemptResult } from '../src/types.js';
 
 const dirs: string[] = [];
 function tmpdirPath(): string {
-  const d = mkdtempSync(join(tmpdir(), 'qp-q-'));
+  const d = mkdtempSync(join(tmpdir(), 'lanerelay-q-'));
   dirs.push(d);
   return d;
 }

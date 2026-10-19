@@ -8,9 +8,9 @@ import type { Config } from '../src/types.js';
 
 const tmp: string[] = [];
 function cfgFile(yaml: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'qp-cfg-'));
+  const dir = mkdtempSync(join(tmpdir(), 'lanerelay-cfg-'));
   tmp.push(dir);
-  const p = join(dir, 'quota-pilot.yaml');
+  const p = join(dir, 'lanerelay.yaml');
   writeFileSync(p, yaml);
   return p;
 }
@@ -125,7 +125,7 @@ describe('orderLanes', () => {
 
   it('with quota readings, richest lane wins over priority inside a cost class', () => {
     // a(paid,p0,3%), c(paid,p5,90%), b(free,p-1,unknown)
-    const dir = mkdtempSync(join(tmpdir(), 'qp-ord-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lanerelay-ord-'));
     tmp.push(dir);
     const store = new LaneStore(join(dir, 'state.json'));
     store.markUsage('a', { pctLeft: 3, evidence: 'usage 3% left' });
@@ -135,7 +135,7 @@ describe('orderLanes', () => {
   });
 
   it('ungauged lanes count as 100% but stay behind paid cost class', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'qp-ord-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lanerelay-ord-'));
     tmp.push(dir);
     const store = new LaneStore(join(dir, 'state.json'));
     store.markUsage('a', { pctLeft: 12, evidence: 'e' });
@@ -145,7 +145,7 @@ describe('orderLanes', () => {
   });
 
   it('explicit chains ignore quota readings', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'qp-ord-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lanerelay-ord-'));
     tmp.push(dir);
     const store = new LaneStore(join(dir, 'state.json'));
     store.markUsage('b', { pctLeft: 99, evidence: 'e' });
@@ -156,7 +156,7 @@ describe('orderLanes', () => {
 
 describe('LaneStore', () => {
   it('round-trips blocked state', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'qp-state-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lanerelay-state-'));
     tmp.push(dir);
     const path = join(dir, 'state.json');
     const store = new LaneStore(path);
@@ -170,7 +170,7 @@ describe('LaneStore', () => {
   });
 
   it('treats expired blocks as free', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'qp-state-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lanerelay-state-'));
     tmp.push(dir);
     const store = new LaneStore(join(dir, 'state.json'));
     store.markBlocked('a', new Date(Date.now() - 1000), 'expired');
@@ -178,7 +178,7 @@ describe('LaneStore', () => {
   });
 
   it('unblock clears one lane or all', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'qp-state-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lanerelay-state-'));
     tmp.push(dir);
     const store = new LaneStore(join(dir, 'state.json'));
     const until = new Date(Date.now() + 3600_000);
@@ -192,7 +192,7 @@ describe('LaneStore', () => {
   });
 
   it('survives a corrupt state file', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'qp-state-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lanerelay-state-'));
     tmp.push(dir);
     const path = join(dir, 'state.json');
     writeFileSync(path, '{not json');
@@ -200,7 +200,7 @@ describe('LaneStore', () => {
     expect(store.blockedUntil('a')).toBeNull();
   });
   it('stores and expires usage readings', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'qp-state-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lanerelay-state-'));
     tmp.push(dir);
     const path = join(dir, 'state.json');
     const store = new LaneStore(path);
@@ -216,7 +216,7 @@ describe('LaneStore', () => {
     expect(fresh.quotaLeft('a')).toBeNull();
   });
   it('stores per-window gauges and orders on the poorest fresh window', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'qp-state-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lanerelay-state-'));
     tmp.push(dir);
     const store = new LaneStore(join(dir, 'state.json'));
     store.markUsage('a', [
@@ -235,7 +235,7 @@ describe('LaneStore', () => {
   });
 
   it('reads legacy single-gauge state files', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'qp-state-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lanerelay-state-'));
     tmp.push(dir);
     const path = join(dir, 'state.json');
     writeFileSync(

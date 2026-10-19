@@ -21,7 +21,7 @@ export interface ProbeResult {
 
 /**
  * Auth/billing/plan failures that never resolve on their own. Probing these
- * marks the lane auth-error instead of burning retries; `qp run` treats the
+ * marks the lane auth-error instead of burning retries; `lanerelay run` treats the
  * lane as failed and moves on.
  */
 const AUTH_PATTERNS: RegExp[] = [
@@ -71,7 +71,7 @@ const DEFAULT_PROBE_TIMEOUT_MS = 3 * 60_000;
  *   available (exit 0) | error (anything else).
  * A discovered reset is written to the lane store; an auth error blocks the
  * lane for a day so the orchestrator skips it until the user fixes creds.
- * Available/error probes only update lastResult — `qp status` then shows the
+ * Available/error probes only update lastResult — `lanerelay status` then shows the
  * lane as observed rather than unknown.
  */
 export async function probeLane(

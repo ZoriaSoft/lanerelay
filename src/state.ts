@@ -54,12 +54,12 @@ const WINDOW_SORT: Record<QuotaWindow, number> = {
 };
 
 /**
- * Per-repo lane state persisted in `.qp/state.json`. Written atomically
+ * Per-repo lane state persisted in `.lanerelay/state.json`. Written atomically
  * (tmp + rename) so a killed run can't leave a half-written file.
  *
- * Parallel `qp` processes share this file: reads and writes reload it when
- * its mtime changed since we last saw it, so blocks learned by a `qp watch`
- * worker are visible to a concurrent `qp run`. It is best-effort
+ * Parallel `lanerelay` processes share this file: reads and writes reload it when
+ * its mtime changed since we last saw it, so blocks learned by a `lanerelay watch`
+ * worker are visible to a concurrent `lanerelay run`. It is best-effort
  * last-writer-wins — a lane state is small enough that losing one update
  * between processes only costs a retried attempt.
  */
@@ -105,7 +105,7 @@ export class LaneStore {
     }
   }
 
-  /** Reload the file when another qp process rewrote it since our last read. */
+  /** Reload the file when another lanerelay process rewrote it since our last read. */
   private refresh(): void {
     let m = 0;
     try {

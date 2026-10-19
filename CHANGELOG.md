@@ -4,10 +4,10 @@
 
 ### Added
 
-- **`qp doctor`** — preflight for a repo: does `quota-pilot.yaml` parse,
+- **`lanerelay doctor`** — preflight for a repo: does `lanerelay.yaml` parse,
   does every lane's first executable resolve (PATH, PATHEXT on Windows, or
   a file path), does the command carry the `{{prompt}}` slot, are the
-  `.qp` dirs writable, is `state.json` valid JSON, is the watcher lock or
+  `.lanerelay` dirs writable, is `state.json` valid JSON, is the watcher lock or
   any lane lease held by a dead pid. `ok`/`warn`/`FAIL` lines or `--json`;
   exits 1 when any check FAILs.
 - **Per-window quota gauges.** Lanes that print more than one gauge (e.g.
@@ -15,16 +15,16 @@
   wins". `detectUsage` returns one reading per window — inferred from
   keywords on the gauge line (weekly/monthly/daily/session) or pinned by
   a `(?<window>…)` named group in a lane's `usage`/`usageUsed` patterns.
-  `.qp/state.json` keeps the freshest reading per window (legacy
+  `.lanerelay/state.json` keeps the freshest reading per window (legacy
   single-reading files migrate to `other`), lane ordering picks the
   *poorest* fresh window, and each window expires on its own TTL
   (session 8h, daily 36h, weekly 9d, monthly 35d, unlabeled 24h) instead
-  of a flat 24h. `qp status`/`qp top` render `(session 90% · weekly 12%
-  quota)`; `qp probe` still reports the effective (minimum) `quotaLeft`.
-- **`qp report --jsonl`** — streams one run record per line for piping
+  of a flat 24h. `lanerelay status`/`lanerelay top` render `(session 90% · weekly 12%
+  quota)`; `lanerelay probe` still reports the effective (minimum) `quotaLeft`.
+- **`lanerelay report --jsonl`** — streams one run record per line for piping
   into `jq`/`duckdb`; `--json` still emits the aggregated report.
-- **`qp add --file <path>`** — enqueues one task per line (`-` reads
-  stdin; blank lines and `#` comments skipped). Bare `qp add` now exits 1
+- **`lanerelay add --file <path>`** — enqueues one task per line (`-` reads
+  stdin; blank lines and `#` comments skipped). Bare `lanerelay add` now exits 1
   with a hint instead of queueing an empty task.
 
 ### Fixed
@@ -35,26 +35,26 @@
 
 ### Added
 
-- **Queue deferral.** A `qp watch` task that found every lane blocked or
+- **Queue deferral.** A `lanerelay watch` task that found every lane blocked or
   timed out waiting used to land in `failed/` — an overnight queue
   self-destructed on a shared 5-hour reset. Items now defer back to
   `pending/` with a `notBefore` (earliest known lane reset, 60s fallback)
   and keep their FIFO slot; `queue.maxDefers` (default 10, 0 = forever)
-  caps repeats before the item really fails. `qp queue` marks deferred
-  items `[deferred until HH:MM xN — reason]`, `qp top` shows `[wake …]`,
+  caps repeats before the item really fails. `lanerelay queue` marks deferred
+  items `[deferred until HH:MM xN — reason]`, `lanerelay top` shows `[wake …]`,
   and `watch --once` reports deferred leftovers instead of exiting quietly.
-- **`qp log [selector]`** — tails `.qp/logs/` attempt files: no selector
+- **`lanerelay log [selector]`** — tails `.lanerelay/logs/` attempt files: no selector
   picks the newest log; a run-id prefix resolves through the run record's
   attempt refs, a queue-item id through its `runId`, an exact lane name
   picks that lane's newest log, anything else matches filenames.
   `-n/--lines` (0 = whole file), `-f/--follow` live-tails, `--list` shows
   recent files.
-- **`qp report --lane <name>`** — per-lane drill-down: aggregate stats plus
+- **`lanerelay report --lane <name>`** — per-lane drill-down: aggregate stats plus
   every recorded attempt (newest first) with duration, evidence and the
   log file ref. `--json` for the full list; exit 1 when the lane has no
   attempts.
 - **Standalone binaries** — `scripts/compile.sh [targets…]` (or
-  `npm run compile`) bundles qp into self-contained `dist/bin/qp-*`
+  `npm run compile`) bundles lanerelay into self-contained `dist/bin/lanerelay-*`
   executables via `bun build --compile` (`npx bun` when bun isn't on PATH).
   Default target linux-x64; `all` also builds darwin x64/arm64 and
   windows-x64. linux-x64 binary verified end-to-end.
@@ -68,7 +68,7 @@
 
 ### Added
 
-- **`qp top`** — live dashboard on the alternate screen: per-lane status
+- **`lanerelay top`** — live dashboard on the alternate screen: per-lane status
   with second-precision blocked countdowns, cost class, quota gauges and
   lease owners; running tasks on their leased lanes; queue depth plus the
   next pending items; resumable runs as copy-paste commands; watcher pid.
@@ -83,30 +83,30 @@
 
 ### Added
 
-- **Parallel watch.** `qp watch --jobs N` (or `queue.jobs` in config) drains
-  the queue with N workers. Per-lane leases (`.qp/leases/<lane>.json`,
+- **Parallel watch.** `lanerelay watch --jobs N` (or `queue.jobs` in config) drains
+  the queue with N workers. Per-lane leases (`.lanerelay/leases/<lane>.json`,
   atomic `O_EXCL` create, dead-pid reclaim, fresh-corrupt files treated as
   held) guarantee two tasks never burn the same lane at once — across
-  workers *and* separate `qp` processes, so a manual `qp run` respects a
+  workers *and* separate `lanerelay` processes, so a manual `lanerelay run` respects a
   watcher's lane. A run whose lanes are all leased polls at 5s instead of
-  waiting for a quota reset that doesn't exist. `qp status` shows
+  waiting for a quota reset that doesn't exist. `lanerelay status` shows
   `[leased by <run>]`, `defaults.leasesDir` relocates the directory.
-- **`handoff.diff` / `qp run --diff none|stat|full`.** `full` embeds a
+- **`handoff.diff` / `lanerelay run --diff none|stat|full`.** `full` embeds a
   bounded `git diff HEAD` patch (`handoff.diffMaxBytes`, default 8192) in
   the handoff so the next agent sees the actual edits; `none` sends no
   working-tree state. Handoff prompt cap raised 16→32 KiB.
 - **Windows lanes.** Command templates spawn via `cmd /d /s /c` on win32;
-  `{{prompt}}` becomes `%QP_PROMPT%` (cmd mangles long quoted text and
-  caps a line near 8 KiB). `QP_PROMPT` is exported on POSIX too — wrapper
+  `{{prompt}}` becomes `%LR_PROMPT%` (cmd mangles long quoted text and
+  caps a line near 8 KiB). `LR_PROMPT` is exported on POSIX too — wrapper
   scripts can read it instead of the argv slot. Timeouts kill the process
   tree via `taskkill /T /F`.
 - `queue.jobs` config + validation.
 
 ### Fixed
 
-- `qp watch --once` processed a single item then exited; it now drains the
+- `lanerelay watch --once` processed a single item then exited; it now drains the
   whole queue, matching its help text.
-- `.qp/state.json` was read once at startup: a `qp run` started after a
+- `.lanerelay/state.json` was read once at startup: a `lanerelay run` started after a
   watcher learned a block would retry the dead lane anyway. The store now
   reloads when the file's mtime changes (best-effort last-writer-wins).
 
@@ -116,18 +116,18 @@
 
 - **Usage-aware lane ordering.** When a lane prints a quota gauge in its
   output ("usage: 72%", "12% of your weekly quota left", "used 40% of the
-  window"), qp records the freshest reading in `.qp/state.json` and, for
+  window"), lanerelay records the freshest reading in `.lanerelay/state.json` and, for
   default (non-`--chain`) ordering, sorts free lanes inside a cost class by
   remaining quota — the lane least likely to die mid-task now wins over a
   lower `priority` one that is nearly dry. Explicit `--chain` order always
   wins. New `patterns.usage` / `patterns.usageUsed` config lists capture
   remaining/used percentages for exotic formats; generic patterns cover
   "N% left", "N% remaining", "usage: N%", "used N% of …" shapes. Readings
-  go stale after 24h; `qp unblock` clears them.
-- `qp status` shows the last gauge per lane (`(42% quota)`); `qp probe`
+  go stale after 24h; `lanerelay unblock` clears them.
+- `lanerelay status` shows the last gauge per lane (`(42% quota)`); `lanerelay probe`
   records gauges too and reports them (`quotaLeft` in `--json`, suffix in
   the console line).
-- `qp prune [--days N]` (default 30) deletes aged `.qp/runs/*.json` records;
+- `lanerelay prune [--days N]` (default 30) deletes aged `.lanerelay/runs/*.json` records;
   live runs are never touched.
 
 ### Fixed
@@ -140,28 +140,28 @@
 
 ### Added
 
-- **Run records** (`.qp/runs/<id>.json`): every `qp run` / `qp watch` task
+- **Run records** (`.lanerelay/runs/<id>.json`): every `lanerelay run` / `lanerelay watch` task
   writes a record after each lane attempt — task, chain, pid, attempts with
   output tails and reset times, final status. Killed mid-task (SIGINT,
   SIGTERM, crash) the record surfaces as `interrupted`.
-- **`qp run --resume <id>`** continues an interrupted/failed/all-blocked
+- **`lanerelay run --resume <id>`** continues an interrupted/failed/all-blocked
   run: same recorded task (a different task text is refused), prior
   attempts seeded into the handoff prompt so the next lane sees the full
   history. Superseded records are marked `resumed` and can't be resumed
   twice; live runs (pid check) and `done` runs are refused too.
-- **`qp report`** — aggregates records: per-lane attempt stats
+- **`lanerelay report`** — aggregates records: per-lane attempt stats
   (done/limited/failed/timeout + last attempt time), queue outcomes,
   resumable runs as copy-paste commands, recent runs (`--json`).
-- `qp status` now lists unfinished/resumable runs; `--json` gains an
-  `unfinishedRuns` field. `qp queue` items carry the `runId` of their run
+- `lanerelay status` now lists unfinished/resumable runs; `--json` gains an
+  `unfinishedRuns` field. `lanerelay queue` items carry the `runId` of their run
   record.
-- `defaults.runsDir` config option (default `.qp/runs`).
+- `defaults.runsDir` config option (default `.lanerelay/runs`).
 - `test/smoke.sh` — end-to-end shell smoke: handoff, failed-run resume,
   SIGINT → interrupted → resume, watch/queue/report assertions.
 
 ### Fixed
 
-- A `qp run` killed by SIGINT/SIGTERM previously left no trace: Node does
+- A `lanerelay run` killed by SIGINT/SIGTERM previously left no trace: Node does
   not fire `exit` under a signal's default disposition, so records now hook
   the signals directly and exit with the conventional code.
 
@@ -169,10 +169,10 @@
 
 ### Added
 
-- `qp probe <lane>` / `qp probe --all` — sends a tiny prompt to a lane and
+- `lanerelay probe <lane>` / `lanerelay probe --all` — sends a tiny prompt to a lane and
   classifies it `available` / `limited` / `auth-error` / `error` /
   `timeout`. Learned reset times and auth blocks are written to
-  `.qp/state.json` so `qp status` reflects reality immediately.
+  `.lanerelay/state.json` so `lanerelay status` reflects reality immediately.
   `--prompt`, `--timeout <s>`, `--json`; exit 2 when any lane is limited
   or auth-error.
 - Detection fidelity pass calibrated on upstream sources: codex
@@ -201,28 +201,28 @@ Initial implementation.
 
 ### Added
 
-- `qp run "<task>"` — runs the task through configured lanes; detects
+- `lanerelay run "<task>"` — runs the task through configured lanes; detects
   quota/rate-limit exits from output + exit codes, marks the lane blocked
   until its reset time, and hands the task (with a handoff note: prior
   attempts, `git diff --stat`, output tails) to the next free lane.
-- `qp run --chain a,b,c` / named `chains:` in config; lane ordering by
+- `lanerelay run --chain a,b,c` / named `chains:` in config; lane ordering by
   cost class (`paidFirst`) then `priority`.
 - Pattern library for claude, codex, gemini, glm, aider, opencode, cursor
   (+ generic fallback for `custom`): cap messages, 429/RESOURCE_EXHAUSTED,
   reset-time parsing for durations, clock times, weekday/month-day dates,
   ISO timestamps and pipe-delimited epochs; transient/recovery suppression.
-- `.qp/state.json` per-repo lane block store (atomic writes);
-  `qp status [--json]`, `qp unblock [lane]`.
-- `qp add`/`qp queue`/`qp watch` file-based queue + single-watcher daemon
+- `.lanerelay/state.json` per-repo lane block store (atomic writes);
+  `lanerelay status [--json]`, `lanerelay unblock [lane]`.
+- `lanerelay add`/`lanerelay queue`/`lanerelay watch` file-based queue + single-watcher daemon
   (lockfile, atomic claim, `--once`, `--poll`).
 - Hooks on limit/handoff/finish/fail: templated shell commands and JSON
-  webhooks (`hooks:` in config, `QP_*` env vars).
-- `qp init` writes a starter `quota-pilot.yaml` and gitignores `.qp/`.
-- Per-attempt logs in `.qp/logs/`; `--quiet` for clean terminals.
+  webhooks (`hooks:` in config, `LR_*` env vars).
+- `lanerelay init` writes a starter `lanerelay.yaml` and gitignores `.lanerelay/`.
+- Per-attempt logs in `.lanerelay/logs/`; `--quiet` for clean terminals.
 - Config: YAML with validation (duplicate names, missing `{{prompt}}`,
   unknown kinds), `defaults:` for reset/wait/timeout/state paths.
 
 ### Notes
 
-- Name under review: `quota-pilot` collides with an existing OpenClaw
+- Name under review: `lanerelay` collides with an existing OpenClaw
   plugin; `pinchhitter` proposed (see ROADMAP.md).

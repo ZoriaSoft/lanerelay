@@ -2,5 +2,5 @@ node_modules/
 dist/
 *.log
 
-# qp runtime state (lane blocks, queue, logs)
-.qp/
+# lanerelay runtime state (lane blocks, queue, logs)
+.lanerelay/

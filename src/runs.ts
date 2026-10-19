@@ -25,7 +25,7 @@ export interface RunRecord {
   lane?: string;
   /** Error summary for failed/all-blocked/timeout. */
   error?: string;
-  /** Id of the run this one continues (qp run --resume <id>). */
+  /** Id of the run this one continues (lanerelay run --resume <id>). */
   resumedFrom?: string;
   /** Set on a record once a successor run resumes it. */
   resumedBy?: string;
@@ -44,7 +44,7 @@ export function pidAlive(pid: number): boolean {
 }
 
 /**
- * One JSON file per `qp run`/`qp watch` task attempt in `.qp/runs/`.
+ * One JSON file per `lanerelay run`/`lanerelay watch` task attempt in `.lanerelay/runs/`.
  * Written atomically (tmp + rename) after every lane attempt, so a killed
  * process still leaves a resumable record. A record whose status stays
  * 'running' while its pid is dead is treated as 'interrupted' on read.
@@ -121,7 +121,7 @@ export class RunStore {
     }
   }
 
-  /** Mark a superseded record when `qp run --resume` continues it. */
+  /** Mark a superseded record when `lanerelay run --resume` continues it. */
   markResumed(rec: RunRecord, byId: string): void {
     rec.status = 'resumed';
     rec.resumedBy = byId;

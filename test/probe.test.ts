@@ -11,7 +11,7 @@ const NOW = new Date('2026-10-18T10:00:00Z');
 const tmpDirs: string[] = [];
 
 function tmpdir2(): string {
-  const d = mkdtempSync(join(tmpdir(), 'qp-probe-'));
+  const d = mkdtempSync(join(tmpdir(), 'lanerelay-probe-'));
   tmpDirs.push(d);
   return d;
 }

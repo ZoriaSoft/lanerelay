@@ -12,7 +12,7 @@ export interface QueueItem {
   finishedAt?: string;
   result?: 'done' | 'failed' | 'all-blocked' | 'timeout';
   lane?: string;
-  /** .qp/runs/<id> record backing this item's execution. */
+  /** .lanerelay/runs/<id> record backing this item's execution. */
   runId?: string;
   /**
    * Pending items with a notBefore in the future are skipped by claim() —

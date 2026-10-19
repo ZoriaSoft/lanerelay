@@ -24,21 +24,21 @@ describe('buildSpawn', () => {
     expect(spec.args[1]).toBe("echo 'x' 'x'");
   });
 
-  it('win32: cmd /d /s /c with the prompt via %QP_PROMPT%', () => {
+  it('win32: cmd /d /s /c with the prompt via %LR_PROMPT%', () => {
     const spec = buildSpawn('claude -p {{prompt}}', 'fix it', 'win32');
     expect(spec.file).toBe('cmd');
-    expect(spec.args).toEqual(['/d', '/s', '/c', 'claude -p "%QP_PROMPT%"']);
+    expect(spec.args).toEqual(['/d', '/s', '/c', 'claude -p "%LR_PROMPT%"']);
     // The prompt never lands in the command line (cmd quoting limits).
     expect(spec.command).not.toContain('fix it');
   });
 });
 
 describe('runLane', () => {
-  it('exports QP_PROMPT to the child environment', async () => {
+  it('exports LR_PROMPT to the child environment', async () => {
     const lane: Lane = {
       name: 't',
       kind: 'custom',
-      command: 'printf %s "$QP_PROMPT"',
+      command: 'printf %s "$LR_PROMPT"',
       priority: 0,
       cost: 'free',
       timeoutMinutes: 0,

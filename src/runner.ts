@@ -18,14 +18,14 @@ export interface SpawnSpec {
 /**
  * How to run a lane's command template for `platform`:
  * - posix: `sh -c` with {{prompt}} single-quoted inline.
- * - win32: `cmd /d /s /c` with {{prompt}} becoming "%QP_PROMPT%". cmd.exe
+ * - win32: `cmd /d /s /c` with {{prompt}} becoming "%LR_PROMPT%". cmd.exe
  *   mangles long single-quoted text and caps a line near 8KB, so the prompt
- *   travels in the QP_PROMPT env var (also exported on posix for scripts).
+ *   travels in the LR_PROMPT env var (also exported on posix for scripts).
  */
 export function buildSpawn(template: string, prompt: string, platform: NodeJS.Platform): SpawnSpec {
   const slot = /\{\{\s*prompt\s*\}\}/g;
   if (platform === 'win32') {
-    const command = template.replace(slot, '"%QP_PROMPT%"');
+    const command = template.replace(slot, '"%LR_PROMPT%"');
     return { file: 'cmd', args: ['/d', '/s', '/c', command], command };
   }
   const command = template.replace(slot, () => shellQuote(prompt));
@@ -90,7 +90,7 @@ export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<R
 
   const child = spawn(spec.file, spec.args, {
     cwd: opts.cwd,
-    env: { ...process.env, QP_PROMPT: prompt },
+    env: { ...process.env, LR_PROMPT: prompt },
     // A process group of our own lets killTree hit the whole tree on posix.
     detached: process.platform !== 'win32',
   });

@@ -119,7 +119,7 @@ describe('formatReport', () => {
     expect(out).toContain('lanes:');
     expect(out).toContain('claude');
     expect(out).toContain('queue: 1 done');
-    expect(out).toContain('qp run --resume r-abc');
+    expect(out).toContain('lanerelay run --resume r-abc');
     expect(out).toContain('recent runs:');
   });
 
@@ -153,7 +153,7 @@ describe('laneReport', () => {
             verdict: { type: 'limited', outputTail: 'x', resetAt: new Date('2026-10-18T15:00:00Z'), evidence: '429 quota' },
             exitCode: 1,
             durationMs: 12_000,
-            logFile: '/tmp/.qp/logs/a-codex.log',
+            logFile: '/tmp/.lanerelay/logs/a-codex.log',
           },
         ],
       }),
@@ -161,7 +161,7 @@ describe('laneReport', () => {
     const row = laneReport(records, 'codex').rows[0];
     expect(row?.evidence).toBe('429 quota');
     expect(row?.resetAt).toBe('2026-10-18T15:00:00.000Z');
-    expect(row?.logFile).toBe('/tmp/.qp/logs/a-codex.log');
+    expect(row?.logFile).toBe('/tmp/.lanerelay/logs/a-codex.log');
     const text = formatLaneReport(laneReport(records, 'codex'));
     expect(text).toContain('limited');
     expect(text).toContain('429 quota');

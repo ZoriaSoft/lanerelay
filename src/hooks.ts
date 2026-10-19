@@ -20,7 +20,7 @@ function render(template: string, vars: HookVars): string {
 
 /**
  * Fire configured hooks for an event. Command hooks run via sh -c with
- * {{var}} templating plus QP_* env vars; webhook hooks POST a JSON body.
+ * {{var}} templating plus LR_* env vars; webhook hooks POST a JSON body.
  * Failures are reported to stderr and never throw — notifications must
  * never take down a run.
  */
@@ -40,7 +40,7 @@ export async function fireHooks(
           await postWebhook(def.webhook, vars);
         }
       } catch (e) {
-        process.stderr.write(`qp: ${event} hook failed: ${(e as Error).message}\n`);
+        process.stderr.write(`lanerelay: ${event} hook failed: ${(e as Error).message}\n`);
       }
     }),
   );
@@ -49,7 +49,7 @@ export async function fireHooks(
 function runCommand(command: string, vars: HookVars): Promise<void> {
   const env = { ...process.env };
   for (const [k, v] of Object.entries(vars)) {
-    env[`QP_${k.toUpperCase()}`] = v;
+    env[`LR_${k.toUpperCase()}`] = v;
   }
   const { promise, resolve, reject } = Promise.withResolvers<void>();
   const child = execFile('sh', ['-c', command], { env, timeout: 15_000 }, (err) => {

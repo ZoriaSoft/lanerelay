@@ -16,8 +16,8 @@ const EXTERNAL_PID = 0;
 const CORRUPT_STALE_MS = 30_000;
 
 /**
- * Per-lane mutex as a file in `.qp/leases/<lane>.json`, so parallel
- * `qp watch --jobs` workers (and separate `qp` processes) never burn the
+ * Per-lane mutex as a file in `.lanerelay/leases/<lane>.json`, so parallel
+ * `lanerelay watch --jobs` workers (and separate `lanerelay` processes) never burn the
  * same subscription for two tasks at once.
  *
  * Acquisition is `O_EXCL` create — atomic on POSIX and Windows. A lease

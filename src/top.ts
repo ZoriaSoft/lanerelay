@@ -5,14 +5,14 @@ import type { LaneStore } from './state.js';
 import { formatQuota, laneStatuses, type LaneStatusRow } from './status.js';
 import type { Lane } from './types.js';
 
-/** Everything `qp top` draws on one refresh. */
+/** Everything `lanerelay top` draws on one refresh. */
 export interface TopSnapshot {
   lanes: LaneStatusRow[];
   /** Cost class per lane name. */
   cost: Record<string, string>;
   /** Live runs (status 'running' with a live pid). */
   running: RunRecord[];
-  /** Unfinished runs `qp run --resume` can continue (dead/interrupted/failed). */
+  /** Unfinished runs `lanerelay run --resume` can continue (dead/interrupted/failed). */
   resumable: RunRecord[];
   /** Queue item counts by state. */
   queue: { pending: number; running: number; done: number; failed: number };
@@ -22,14 +22,14 @@ export interface TopSnapshot {
   leaseByLane: Record<string, string>;
   /** runId → leased lane name (reverse of leaseByLane). */
   laneByRun: Record<string, string>;
-  /** Pid of the running `qp watch` daemon; null when none. */
+  /** Pid of the running `lanerelay watch` daemon; null when none. */
   watcherPid: number | null;
 }
 
 export interface SnapshotSource {
   /** Lanes in run order (orderLanes result). */
   lanes: Lane[];
-  /** Lane state store (.qp/state.json). */
+  /** Lane state store (.lanerelay/state.json). */
   store: LaneStore;
   /** Live lane leases (LeaseSet.heldLanes() or {}). */
   leased: Record<string, LaneLease>;
@@ -39,7 +39,7 @@ export interface SnapshotSource {
   queue: Record<'pending' | 'running' | 'done' | 'failed', QueueItem[]>;
   /** Whether a record may be resumed (RunStore.resumable). */
   isResumable: (r: RunRecord) => boolean;
-  /** Pid from .qp/watch.lock when the file exists; null otherwise. */
+  /** Pid from .lanerelay/watch.lock when the file exists; null otherwise. */
   watcherPid: number | null;
   now?: Date;
 }
@@ -127,7 +127,7 @@ export function formatTop(snap: TopSnapshot, opts: FormatOpts = {}): string {
 
   const out: string[] = [];
   out.push(
-    `${paint('cyan', 'qp top')}  ${opts.repo ? `${opts.repo}  ` : ''}${now.toLocaleTimeString()}${opts.color ? '  ·  q to quit' : ''}`,
+    `${paint('cyan', 'lanerelay top')}  ${opts.repo ? `${opts.repo}  ` : ''}${now.toLocaleTimeString()}${opts.color ? '  ·  q to quit' : ''}`,
   );
   out.push(snap.watcherPid ? `watcher: running (pid ${snap.watcherPid})` : paint('dim', 'watcher: none'));
   out.push('');
@@ -186,7 +186,7 @@ export function formatTop(snap: TopSnapshot, opts: FormatOpts = {}): string {
   if (snap.resumable.length > 0) {
     out.push('', paint('dim', 'RESUMABLE'));
     for (const rec of snap.resumable.slice(0, RESUMABLE_PREVIEW)) {
-      out.push(`  qp run --resume ${rec.id}   # ${rec.status} — ${clip(rec.task, Math.max(20, width - 50))}`);
+      out.push(`  lanerelay run --resume ${rec.id}   # ${rec.status} — ${clip(rec.task, Math.max(20, width - 50))}`);
     }
   }
 
@@ -204,7 +204,7 @@ export interface TopIo {
 /**
  * Live dashboard loop: full redraw on an alternate screen every `intervalMs`.
  * Falls back to a single frame when stdout is not a TTY (piped output,
- * `qp top --once`) so scripts and `top | less` stay sane.
+ * `lanerelay top --once`) so scripts and `top | less` stay sane.
  */
 export async function runTop(opts: {
   collect: () => { snap: TopSnapshot; repo: string };

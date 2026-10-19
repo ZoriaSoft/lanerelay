@@ -74,7 +74,7 @@ function dirWritable(path: string): boolean {
 
 /**
  * Preflight for a repo: does the config parse, do the lane executables
- * exist, are the .qp dirs writable, is state healthy? Pure reads plus
+ * exist, are the .lanerelay dirs writable, is state healthy? Pure reads plus
  * the directory creation every command performs anyway.
  */
 export function doctorChecks(opts: { cwd: string; configFlag?: string }): Check[] {
@@ -83,10 +83,10 @@ export function doctorChecks(opts: { cwd: string; configFlag?: string }): Check[
   let cfg: Config | null = null;
 
   // --- config -------------------------------------------------------------
-  const configPath = findConfigFile(cwd, opts.configFlag ?? process.env.QP_CONFIG);
+  const configPath = findConfigFile(cwd, opts.configFlag ?? process.env.LR_CONFIG);
   if (!configPath) {
     checks.push(
-      fail('config', 'no quota-pilot.yaml found — run `qp init` or pass --config <path>'),
+      fail('config', 'no lanerelay.yaml found — run `lanerelay init` or pass --config <path>'),
     );
   } else {
     try {
@@ -157,18 +157,18 @@ export function doctorChecks(opts: { cwd: string; configFlag?: string }): Check[
       const lanes = parsed?.lanes && typeof parsed.lanes === 'object' ? Object.keys(parsed.lanes).length : 0;
       checks.push(ok('state file', `valid — ${lanes} lane(s) tracked`));
     } catch {
-      checks.push(warn('state file', 'corrupt JSON — qp will start fresh on next write'));
+      checks.push(warn('state file', 'corrupt JSON — lanerelay will start fresh on next write'));
     }
   }
 
   // --- watcher lock ----------------------------------------------------------
-  const lockPath = join(cwd, '.qp', 'watch.lock');
+  const lockPath = join(cwd, '.lanerelay', 'watch.lock');
   if (existsSync(lockPath)) {
     const pid = parseInt(readFileSync(lockPath, 'utf8'), 10);
     if (pid && pidAlive(pid)) {
       checks.push(ok('watcher', `running (pid ${pid})`));
     } else {
-      checks.push(warn('watcher', `stale lock for dead pid ${pid || '?'} — safe to delete .qp/watch.lock`));
+      checks.push(warn('watcher', `stale lock for dead pid ${pid || '?'} — safe to delete .lanerelay/watch.lock`));
     }
   } else {
     checks.push(ok('watcher', 'none running'));

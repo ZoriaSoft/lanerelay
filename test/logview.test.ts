@@ -8,7 +8,7 @@ import type { AttemptResult } from '../src/types.js';
 
 const dirs: string[] = [];
 function tmp(): string {
-  const d = mkdtempSync(join(tmpdir(), 'qp-log-'));
+  const d = mkdtempSync(join(tmpdir(), 'lanerelay-log-'));
   dirs.push(d);
   return d;
 }

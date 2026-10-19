@@ -109,7 +109,7 @@ export async function runTask(
         continue;
       }
       const laneName = lanes.find((l) => store.blockedUntil(l.name, now())?.getTime() === earliest.getTime())?.name ?? 'a lane';
-      process.stderr.write(`qp: all lanes blocked; waiting until ${earliest.toLocaleTimeString()} for ${laneName}\n`);
+      process.stderr.write(`lanerelay: all lanes blocked; waiting until ${earliest.toLocaleTimeString()} for ${laneName}\n`);
       await sleep(waitMs + 250);
       continue;
     }

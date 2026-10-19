@@ -7,7 +7,7 @@ import { LeaseSet } from '../src/leases.js';
 
 const dirs: string[] = [];
 function leasesDir(): string {
-  const d = mkdtempSync(join(tmpdir(), 'qp-lease-'));
+  const d = mkdtempSync(join(tmpdir(), 'lanerelay-lease-'));
   dirs.push(d);
   return join(d, 'leases');
 }

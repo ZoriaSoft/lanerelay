@@ -96,14 +96,14 @@ export interface HooksConfig {
 }
 
 export interface QueueConfig {
-  /** Directory holding queue items. Default `.qp/queue`. */
+  /** Directory holding queue items. Default `.lanerelay/queue`. */
   dir?: string;
-  /** Poll interval for `qp watch` (seconds). Default 3. */
+  /** Poll interval for `lanerelay watch` (seconds). Default 3. */
   pollSeconds?: number;
-  /** Parallel workers for `qp watch`. Default 1. */
+  /** Parallel workers for `lanerelay watch`. Default 1. */
   jobs?: number;
   /**
-   * How many times `qp watch` may defer a task that finds every lane
+   * How many times `lanerelay watch` may defer a task that finds every lane
    * blocked back to pending until a reset. Default 10; 0 = keep deferring
    * until it runs or is removed.
    */
@@ -112,7 +112,7 @@ export interface QueueConfig {
 
 export interface Config {
   lanes: LaneConfig[];
-  /** Named lane lists used by `qp run --chain name`. */
+  /** Named lane lists used by `lanerelay run --chain name`. */
   chains?: Record<string, ChainConfig>;
   hooks?: HooksConfig;
   queue?: QueueConfig;
@@ -126,13 +126,13 @@ export interface Config {
     defaultResetMinutes?: number;
     /** Per-attempt cap (minutes) applied to lanes without their own. Default 0. */
     timeoutMinutes?: number;
-    /** Directory for per-attempt logs. Default `.qp/logs`. */
+    /** Directory for per-attempt logs. Default `.lanerelay/logs`. */
     logsDir?: string;
-    /** Directory for per-run history records. Default `.qp/runs`. */
+    /** Directory for per-run history records. Default `.lanerelay/runs`. */
     runsDir?: string;
-    /** State file path. Default `.qp/state.json`. */
+    /** State file path. Default `.lanerelay/state.json`. */
     stateFile?: string;
-    /** Directory for lane lease files (parallel runs). Default `.qp/leases`. */
+    /** Directory for lane lease files (parallel runs). Default `.lanerelay/leases`. */
     leasesDir?: string;
   };
 }

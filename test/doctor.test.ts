@@ -6,7 +6,7 @@ import { doctorChecks, firstCommandWord, resolveExecutable, formatDoctor } from 
 
 const tmp: string[] = [];
 const dir = () => {
-  const d = mkdtempSync(join(tmpdir(), 'qp-doctor-'));
+  const d = mkdtempSync(join(tmpdir(), 'lanerelay-doctor-'));
   tmp.push(d);
   return d;
 };
@@ -40,7 +40,7 @@ describe('doctorChecks', () => {
   it('reports all-clear on a healthy repo', () => {
     const d = dir();
     writeFileSync(
-      join(d, 'quota-pilot.yaml'),
+      join(d, 'lanerelay.yaml'),
       cfg(`  - name: main\n    kind: claude\n    command: "sh -c 'echo {{prompt}}'"\n`),
     );
     const checks = doctorChecks({ cwd: d });
@@ -61,7 +61,7 @@ describe('doctorChecks', () => {
   it('fails when the lane executable is missing', () => {
     const d = dir();
     writeFileSync(
-      join(d, 'quota-pilot.yaml'),
+      join(d, 'lanerelay.yaml'),
       cfg(`  - name: ghost\n    kind: custom\n    command: 'ghost-cli-zzz {{prompt}}'\n`),
     );
     const c = doctorChecks({ cwd: d }).find((x) => x.name === 'lane ghost: executable')!;
@@ -72,7 +72,7 @@ describe('doctorChecks', () => {
   it('fails when the lane command drops {{prompt}}', () => {
     const d = dir();
     writeFileSync(
-      join(d, 'quota-pilot.yaml'),
+      join(d, 'lanerelay.yaml'),
       cfg(`  - name: silent\n    kind: claude\n    command: "sh -c 'echo hi'"\n`),
     );
     // loadConfig enforces the slot → the config check carries the message
@@ -84,21 +84,21 @@ describe('doctorChecks', () => {
   it('warns on a corrupt state file', () => {
     const d = dir();
     writeFileSync(
-      join(d, 'quota-pilot.yaml'),
+      join(d, 'lanerelay.yaml'),
       cfg(`  - name: main\n    kind: claude\n    command: "sh -c 'echo {{prompt}}'"\n`),
     );
-    mkdirSync(join(d, '.qp'), { recursive: true });
-    writeFileSync(join(d, '.qp', 'state.json'), '{not json');
+    mkdirSync(join(d, '.lanerelay'), { recursive: true });
+    writeFileSync(join(d, '.lanerelay', 'state.json'), '{not json');
     expect(doctorChecks({ cwd: d }).find((c) => c.name === 'state file')?.status).toBe('warn');
   });
 
   it('warns on stale lease files', () => {
     const d = dir();
     writeFileSync(
-      join(d, 'quota-pilot.yaml'),
+      join(d, 'lanerelay.yaml'),
       cfg(`  - name: main\n    kind: claude\n    command: "sh -c 'echo {{prompt}}'"\n`),
     );
-    const leases = join(d, '.qp', 'leases');
+    const leases = join(d, '.lanerelay', 'leases');
     mkdirSync(leases, { recursive: true });
     // a pid that cannot exist → the lease is stale and reported as such
     writeFileSync(join(leases, 'codex.json'), JSON.stringify({ runId: 'r-x', pid: 999999999, at: 'x' }));

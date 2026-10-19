@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build standalone `qp` binaries (no Node needed at runtime) via
+# Build standalone `lanerelay` binaries (no Node needed at runtime) via
 # `bun build --compile`. Bundles src/cli.ts + commander + yaml directly;
 # no `npm run build` step required.
 #
@@ -7,7 +7,7 @@
 #   scripts/compile.sh all              # linux/darwin x64+arm64, windows x64
 #   scripts/compile.sh linux-x64 darwin-arm64
 #
-# Output: dist/bin/qp-<target>[.exe]
+# Output: dist/bin/lanerelay-<target>[.exe]
 set -eu
 cd "$(dirname "$0")/.."
 if command -v bun >/dev/null 2>&1; then
@@ -30,7 +30,7 @@ for t in $targets; do
     windows*) ext=".exe" ;;
     *) ext="" ;;
   esac
-  out="dist/bin/qp-${t}${ext}"
+  out="dist/bin/lanerelay-${t}${ext}"
   $BUN build --compile --target="bun-${t}" --outfile "$out" src/cli.ts
   echo "built $out"
 done

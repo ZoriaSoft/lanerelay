@@ -10,7 +10,7 @@ import { LaneStore } from '../src/state.js';
 
 const dirs: string[] = [];
 function workdir(): string {
-  const d = mkdtempSync(join(tmpdir(), 'qp-orch-'));
+  const d = mkdtempSync(join(tmpdir(), 'lanerelay-orch-'));
   dirs.push(d);
   return d;
 }
@@ -42,7 +42,7 @@ function cfg(dir: string, lanes: ReturnType<typeof fakeLane>[], extra = ''): str
       (l) => `  - name: ${l.name}\n    kind: ${l.kind}\n    command: "${l.command}"\n`,
     )
     .join('')}${extra}`;
-  const p = join(dir, 'quota-pilot.yaml');
+  const p = join(dir, 'lanerelay.yaml');
   writeFileSync(p, yaml);
   return p;
 }

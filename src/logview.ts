@@ -17,7 +17,7 @@ export interface LogEntry {
 // the lane suffix, so `Z-(.+)\.log` recovers even hyphenated lane names.
 const LOG_LANE = /Z-(.+)\.log$/;
 
-/** List `.qp/logs/*.log` files, newest first. */
+/** List `.lanerelay/logs/*.log` files, newest first. */
 export function listLogs(logsDir: string, limit = 20): LogEntry[] {
   if (!existsSync(logsDir)) return [];
   const out: LogEntry[] = [];
@@ -57,7 +57,7 @@ function pick(entries: LogEntry[]): LogEntry | undefined {
 }
 
 /**
- * Resolve a `qp log` selector to a log file. Order: run-id prefix →
+ * Resolve a `lanerelay log` selector to a log file. Order: run-id prefix →
  * queue-item id prefix → exact lane name → filename substring. No selector
  * means the newest log. Newest match wins within each step.
  */
@@ -100,7 +100,7 @@ export function resolveLog(logsDir: string, input: ResolveInput): ResolveResult 
   const matches = all.filter((e) => e.name.includes(sel) || e.name === sel);
   const entry = pick(matches);
   if (entry) return { entry };
-  return { error: `no log file, lane or run id matching "${sel}" (see: qp log --list)` };
+  return { error: `no log file, lane or run id matching "${sel}" (see: lanerelay log --list)` };
 }
 
 export interface TailResult {

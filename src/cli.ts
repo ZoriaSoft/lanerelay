@@ -27,10 +27,10 @@ interface Ctx {
 }
 
 function loadCtx(cwd: string, configFlag?: string): Ctx {
-  const path = findConfigFile(cwd, configFlag ?? process.env.QP_CONFIG);
+  const path = findConfigFile(cwd, configFlag ?? process.env.LR_CONFIG);
   if (!path) {
     throw new ConfigError(
-      'no config file found. Run `qp init` to create quota-pilot.yaml, or pass --config <path>.',
+      'no config file found. Run `lanerelay init` to create lanerelay.yaml, or pass --config <path>.',
     );
   }
   const cfg = loadConfig(path);
@@ -46,32 +46,32 @@ function loadCtx(cwd: string, configFlag?: string): Ctx {
 }
 
 function report(verdict: TaskVerdict, runId?: string): number {
-  const resumeHint = runId ? ` Continue with: qp run --resume ${runId}` : '';
+  const resumeHint = runId ? ` Continue with: lanerelay run --resume ${runId}` : '';
   switch (verdict.type) {
     case 'done': {
       const last = verdict.attempts[verdict.attempts.length - 1];
       process.stderr.write(
-        `\nqp: done on lane "${verdict.lane}" (${verdict.attempts.length} attempt(s), log: ${last?.logFile ?? 'none'})\n`,
+        `\nlanerelay: done on lane "${verdict.lane}" (${verdict.attempts.length} attempt(s), log: ${last?.logFile ?? 'none'})\n`,
       );
       return 0;
     }
     case 'all-blocked':
       process.stderr.write(
-        `\nqp: every lane is blocked${verdict.earliestReset ? `; earliest reset ${verdict.earliestReset.toLocaleTimeString()}` : ''}. Rerun without --no-wait to sleep until it resets, or 'qp status' to inspect.${resumeHint}\n`,
+        `\nlanerelay: every lane is blocked${verdict.earliestReset ? `; earliest reset ${verdict.earliestReset.toLocaleTimeString()}` : ''}. Rerun without --no-wait to sleep until it resets, or 'lanerelay status' to inspect.${resumeHint}\n`,
       );
       return 2;
     case 'failed':
-      process.stderr.write(`\nqp: all lanes failed; last error: ${verdict.lastError}.${resumeHint}\n`);
+      process.stderr.write(`\nlanerelay: all lanes failed; last error: ${verdict.lastError}.${resumeHint}\n`);
       return 3;
     case 'timeout':
-      process.stderr.write(`\nqp: gave up waiting for a free lane (maxWaitMinutes exceeded).${resumeHint}\n`);
+      process.stderr.write(`\nlanerelay: gave up waiting for a free lane (maxWaitMinutes exceeded).${resumeHint}\n`);
       return 4;
   }
 }
 
 /**
  * Registry of live run records. One shared set of exit/signal handlers marks
- * every in-flight record 'interrupted' — needed once `qp watch --jobs N`
+ * every in-flight record 'interrupted' — needed once `lanerelay watch --jobs N`
  * runs several records in the same process ('exit' alone is not enough: a
  * signal under its default disposition kills the process without firing it,
  * so SIGINT/SIGTERM mark first, then exit with the conventional code).
@@ -99,7 +99,7 @@ function wireSignals(): void {
 /**
  * Persist a run record: rewrites it after every lane attempt and finalizes
  * it with the verdict; a SIGINT/exit while still running marks it
- * 'interrupted' so `qp run --resume <id>` can pick the task up.
+ * 'interrupted' so `lanerelay run --resume <id>` can pick the task up.
  */
 function wireRecord(runs: RunStore, rec: RunRecord): OrchestrateOptions['onUpdate'] {
   wireSignals();
@@ -142,16 +142,16 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const program = new Command();
 program
-  .name('qp')
+  .name('lanerelay')
   .description('Run one coding task across several AI agent CLIs; quota-limit hits hand the task to the next lane.')
   .version('0.8.0')
-  .option('--config <path>', 'path to quota-pilot.yaml');
+  .option('--config <path>', 'path to lanerelay.yaml');
 
 program
   .command('run')
   .argument('[task...]', 'task description (omit with --resume to reuse the recorded task)')
   .option('-c, --chain <chain>', 'named chain from config, or comma-separated lane names')
-  .option('--resume <id>', 'continue an earlier run (see `qp report` for resumable ids)')
+  .option('--resume <id>', 'continue an earlier run (see `lanerelay report` for resumable ids)')
   .option('--no-wait', 'exit instead of waiting when every lane is blocked')
   .option('-q, --quiet', 'do not mirror lane output to the terminal')
   .option('--diff <mode>', 'handoff diff mode: none|stat|full (overrides handoff.diff)')
@@ -173,24 +173,24 @@ program
       if (opts.resume) {
         const old = ctx.runs.get(opts.resume);
         if (!old) {
-          process.stderr.write(`qp: no run record "${opts.resume}" (.qp/runs)\n`);
+          process.stderr.write(`lanerelay: no run record "${opts.resume}" (.lanerelay/runs)\n`);
           process.exitCode = 1;
           return;
         }
         if (old.status === 'done') {
-          process.stderr.write(`qp: run ${old.id} already finished on lane "${old.lane}"\n`);
+          process.stderr.write(`lanerelay: run ${old.id} already finished on lane "${old.lane}"\n`);
           process.exitCode = 1;
           return;
         }
         if (old.status === 'running' && pidAlive(old.pid)) {
-          process.stderr.write(`qp: run ${old.id} is still running (pid ${old.pid}); not resuming\n`);
+          process.stderr.write(`lanerelay: run ${old.id} is still running (pid ${old.pid}); not resuming\n`);
           process.exitCode = 1;
           return;
         }
         if (!old.resumedBy) {
           if (task && task !== old.task) {
             process.stderr.write(
-              `qp: run ${old.id} recorded a different task; omit the task argument to continue it, or start a new run.\n`,
+              `lanerelay: run ${old.id} recorded a different task; omit the task argument to continue it, or start a new run.\n`,
             );
             process.exitCode = 1;
             return;
@@ -201,14 +201,14 @@ program
           resumedFrom = old.id;
           resumedRec = old;
         } else {
-          process.stderr.write(`qp: run ${old.id} was already resumed by ${old.resumedBy}; resume that one instead\n`);
+          process.stderr.write(`lanerelay: run ${old.id} was already resumed by ${old.resumedBy}; resume that one instead\n`);
           process.exitCode = 1;
           return;
         }
       }
 
       if (!task) {
-        process.stderr.write('qp: give a task, or --resume <id> to continue a recorded run\n');
+        process.stderr.write('lanerelay: give a task, or --resume <id> to continue a recorded run\n');
         process.exitCode = 1;
         return;
       }
@@ -216,7 +216,7 @@ program
       const lanes = chain ? orderLanes(ctx.cfg, chain) : orderLanes(ctx.cfg, undefined, ctx.store);
       const rec = ctx.runs.create({ task, chain, resumedFrom, attempts: resumeFrom });
       if (resumedRec) ctx.runs.markResumed(resumedRec, rec.id);
-      process.stderr.write(`qp: run ${rec.id}${resumedFrom ? ` (resuming ${resumedFrom})` : ''}\n`);
+      process.stderr.write(`lanerelay: run ${rec.id}${resumedFrom ? ` (resuming ${resumedFrom})` : ''}\n`);
 
       const leases = leasesFor(ctx);
       let verdict: TaskVerdict;
@@ -262,7 +262,7 @@ program
     if (unfinished.length > 0) {
       console.log('\nunfinished runs:');
       for (const r of unfinished.slice(0, 5)) {
-        const how = r.status === 'running' ? `running (pid ${r.pid})` : `${r.status} — resume: qp run --resume ${r.id}`;
+        const how = r.status === 'running' ? `running (pid ${r.pid})` : `${r.status} — resume: lanerelay run --resume ${r.id}`;
         console.log(`  ${r.id}  ${how}  ${r.task.slice(0, 60)}`);
       }
     }
@@ -277,11 +277,11 @@ program
     const cwd = process.cwd();
     const ctx = loadCtx(cwd, cmd.optsWithGlobals().config);
     if (!Number.isFinite(opts.interval) || opts.interval <= 0) {
-      process.stderr.write('qp: --interval must be a positive number of seconds\n');
+      process.stderr.write('lanerelay: --interval must be a positive number of seconds\n');
       process.exitCode = 1;
       return;
     }
-    const lock = join(cwd, '.qp', 'watch.lock');
+    const lock = join(cwd, '.lanerelay', 'watch.lock');
     const collect = () => {
       const q = new TaskQueue(ctx.queueDir);
       let watcherPid: number | null = null;
@@ -372,7 +372,7 @@ program
   .action((opts: { days: number }, cmd: Command) => {
     const ctx = loadCtx(process.cwd(), cmd.optsWithGlobals().config);
     if (!Number.isFinite(opts.days) || opts.days < 1) {
-      process.stderr.write('qp: --days must be a positive integer\n');
+      process.stderr.write('lanerelay: --days must be a positive integer\n');
       process.exitCode = 1;
       return;
     }
@@ -385,7 +385,7 @@ program
   .argument('[task...]', 'task description (omit with --file)')
   .option('-c, --chain <chain>', 'chain override for this task')
   .option('-f, --file <path>', 'enqueue one task per line from a file ("-" = stdin); blank lines and # comments skipped')
-  .description('enqueue a task for `qp watch`')
+  .description('enqueue a task for `lanerelay watch`')
   .action((taskParts: string[], opts: { chain?: string; file?: string }, cmd: Command) => {
     const ctx = loadCtx(process.cwd(), cmd.optsWithGlobals().config);
     const q = new TaskQueue(ctx.queueDir);
@@ -396,7 +396,7 @@ program
         .map((l) => l.trim())
         .filter((l) => l !== '' && !l.startsWith('#'));
       if (tasks.length === 0) {
-        process.stderr.write('qp: --file contained no tasks\n');
+        process.stderr.write('lanerelay: --file contained no tasks\n');
         process.exitCode = 1;
         return;
       }
@@ -407,7 +407,7 @@ program
     }
     const task = taskParts.join(' ').trim();
     if (task === '') {
-      process.stderr.write('qp: give a task or use --file <path>\n');
+      process.stderr.write('lanerelay: give a task or use --file <path>\n');
       process.exitCode = 1;
       return;
     }
@@ -429,7 +429,7 @@ program
     ) => {
       const cwd = process.cwd();
       const ctx = loadCtx(cwd, cmd.optsWithGlobals().config);
-      const lock = join(cwd, '.qp', 'watch.lock');
+      const lock = join(cwd, '.lanerelay', 'watch.lock');
 
       if (existsSync(lock)) {
         let pid = 0;
@@ -439,7 +439,7 @@ program
           /* unreadable lock → treat as stale */
         }
         if (pid && pidAlive(pid)) {
-          process.stderr.write(`qp: another watcher is already running (pid ${pid})\n`);
+          process.stderr.write(`lanerelay: another watcher is already running (pid ${pid})\n`);
           process.exitCode = 1;
           return;
         }
@@ -452,7 +452,7 @@ program
 
       const jobs = opts.jobs ?? ctx.cfg.queue?.jobs ?? 1;
       if (!Number.isInteger(jobs) || jobs < 1) {
-        process.stderr.write(`qp: --jobs must be a positive integer (got "${opts.jobs}")\n`);
+        process.stderr.write(`lanerelay: --jobs must be a positive integer (got "${opts.jobs}")\n`);
         process.exitCode = 1;
         return;
       }
@@ -461,7 +461,7 @@ program
       const leases = leasesFor(ctx);
       const pollMs = (opts.poll ?? ctx.pollSeconds) * 1_000;
       process.stderr.write(
-        `qp: watching ${ctx.queueDir} (poll ${pollMs / 1000}s${jobs > 1 ? `, ${jobs} workers` : ''})\n`,
+        `lanerelay: watching ${ctx.queueDir} (poll ${pollMs / 1000}s${jobs > 1 ? `, ${jobs} workers` : ''})\n`,
       );
 
       const logsDir = join(cwd, ctx.cfg.defaults?.logsDir ?? DEFAULTS.logsDir);
@@ -473,7 +473,7 @@ program
             await sleep(pollMs);
             continue;
           }
-          process.stderr.write(`qp: [w${wid}] running ${item.id}: ${item.task.slice(0, 80)}\n`);
+          process.stderr.write(`lanerelay: [w${wid}] running ${item.id}: ${item.task.slice(0, 80)}\n`);
           const chain = item.chain ?? opts.chain;
           const lanes = chain ? orderLanes(ctx.cfg, chain) : orderLanes(ctx.cfg, undefined, ctx.store);
           const rec = ctx.runs.create({ task: item.task, chain });
@@ -497,7 +497,7 @@ program
               item.runId = rec.id;
               q.defer(item, defer.wakeAt, defer.reason);
               process.stderr.write(
-                `qp: [w${wid}] ${item.id} deferred until ${defer.wakeAt.toLocaleTimeString()} ` +
+                `lanerelay: [w${wid}] ${item.id} deferred until ${defer.wakeAt.toLocaleTimeString()} ` +
                   `(x${item.defers}, ${defer.reason}, run ${rec.id})\n`,
               );
             } else {
@@ -511,7 +511,7 @@ program
                       : undefined,
                 runId: rec.id,
               });
-              process.stderr.write(`qp: [w${wid}] ${item.id} → ${verdict.type} (run ${rec.id})\n`);
+              process.stderr.write(`lanerelay: [w${wid}] ${item.id} → ${verdict.type} (run ${rec.id})\n`);
             }
           } finally {
             // Any lease left behind (a throw between acquire and the inner
@@ -530,7 +530,7 @@ program
             .map((i) => (i.notBefore ? Date.parse(i.notBefore) : NaN))
             .filter((w) => Number.isFinite(w));
           const eta = wakes.length > 0 ? ` until ${new Date(Math.min(...wakes)).toLocaleTimeString()}` : '';
-          process.stderr.write(`qp: ${left.length} deferred item(s) left in queue${eta}\n`);
+          process.stderr.write(`lanerelay: ${left.length} deferred item(s) left in queue${eta}\n`);
         }
       }
     },
@@ -552,7 +552,7 @@ program
     '[selector]',
     'run id prefix, queue item id prefix, lane name, or log filename fragment (default: newest log)',
   )
-  .description('tail a lane attempt log from .qp/logs (or follow a live one)')
+  .description('tail a lane attempt log from .lanerelay/logs (or follow a live one)')
   .option('-n, --lines <n>', 'lines to print (0 = whole file)', (v) => parseInt(v, 10), 200)
   .option('-f, --follow', 'keep printing new bytes as the lane writes them')
   .option('--list', 'list recent log files instead of tailing')
@@ -588,16 +588,16 @@ program
         lanes: ctx.cfg.lanes.map((l) => l.name),
       });
       if (!resolved.entry) {
-        process.stderr.write(`qp: ${resolved.error}\n`);
+        process.stderr.write(`lanerelay: ${resolved.error}\n`);
         process.exitCode = 1;
         return;
       }
       const path = resolved.entry.path;
-      process.stderr.write(`qp: ${resolved.entry.name}\n`);
+      process.stderr.write(`lanerelay: ${resolved.entry.name}\n`);
 
       const tail = tailFile(path, opts.lines);
       if (tail.truncated) {
-        process.stderr.write('qp: (log exceeds 1 MiB; showing the tail window)\n');
+        process.stderr.write('lanerelay: (log exceeds 1 MiB; showing the tail window)\n');
       }
       if (tail.text) process.stdout.write(tail.text + '\n');
 
@@ -648,13 +648,13 @@ program
       } else if (laneName) {
         const cfg = ctx.cfg.lanes.find((l) => l.name === laneName);
         if (!cfg) {
-          process.stderr.write(`qp: no lane named "${laneName}" in config\n`);
+          process.stderr.write(`lanerelay: no lane named "${laneName}" in config\n`);
           process.exitCode = 1;
           return;
         }
         lanes = [resolveLane(ctx.cfg, cfg)];
       } else {
-        process.stderr.write('qp: give a lane name or --all\n');
+        process.stderr.write('lanerelay: give a lane name or --all\n');
         process.exitCode = 1;
         return;
       }
@@ -683,7 +683,7 @@ program
 
 program
   .command('init')
-  .description('write a starter quota-pilot.yaml')
+  .description('write a starter lanerelay.yaml')
   .action(() => {
     const res = initConfig(process.cwd());
     if (!res.created) {
@@ -691,7 +691,7 @@ program
       return;
     }
     console.log(`wrote ${res.configPath}${res.gitignoreNote ? ` (${res.gitignoreNote})` : ''}`);
-    console.log('edit the lane commands, then: qp run "your task"');
+    console.log('edit the lane commands, then: lanerelay run "your task"');
   });
 program
   .command('doctor')
@@ -714,10 +714,10 @@ program
 
 program.parseAsync().catch((e) => {
   if (e instanceof ConfigError) {
-    process.stderr.write(`qp: ${e.message}\n`);
+    process.stderr.write(`lanerelay: ${e.message}\n`);
     process.exitCode = 1;
     return;
   }
-  process.stderr.write(`qp: ${(e as Error).stack ?? e}\n`);
+  process.stderr.write(`lanerelay: ${(e as Error).stack ?? e}\n`);
   process.exitCode = 1;
 });

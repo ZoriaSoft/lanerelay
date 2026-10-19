@@ -28,7 +28,7 @@ export interface Report {
   queue: { done: number; failed: number; pending: number; running: number };
   /** Most recent records (newest first). */
   recent: RunRecord[];
-  /** Records that `qp run --resume <id>` can continue. */
+  /** Records that `lanerelay run --resume <id>` can continue. */
   resumable: RunRecord[];
 }
 
@@ -119,7 +119,7 @@ export function formatReport(rep: Report): string {
   if (rep.resumable.length > 0) {
     out.push('', 'resumable runs:');
     for (const rec of rep.resumable) {
-      out.push(`  qp run --resume ${rec.id}   # ${rec.status} — ${clip(rec.task, 50)}`);
+      out.push(`  lanerelay run --resume ${rec.id}   # ${rec.status} — ${clip(rec.task, 50)}`);
     }
   }
 
@@ -135,7 +135,7 @@ export function formatReport(rep: Report): string {
   return out.join('\n');
 }
 
-/** One lane attempt inside a run, for `qp report --lane` drill-down. */
+/** One lane attempt inside a run, for `lanerelay report --lane` drill-down. */
 export interface LaneAttemptRow {
   runId: string;
   task: string;
@@ -158,7 +158,7 @@ export interface LaneDetail {
 const LANE_ROWS_LIMIT = 20;
 
 /**
- * Drill-down for `qp report --lane <name>`: the lane's aggregate stats plus
+ * Drill-down for `lanerelay report --lane <name>`: the lane's aggregate stats plus
  * every recorded attempt, newest first. Records without an attempt on the
  * lane contribute nothing (a run may have failed before reaching it).
  */

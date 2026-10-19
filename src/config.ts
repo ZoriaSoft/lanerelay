@@ -3,18 +3,18 @@ import { join } from 'node:path';
 import YAML from 'yaml';
 import type { Config, Lane, LaneConfig, LaneKind } from './types.js';
 
-export const DEFAULT_CONFIG_FILES = ['quota-pilot.yaml', 'quota-pilot.yml', '.qp/config.yaml'];
+export const DEFAULT_CONFIG_FILES = ['lanerelay.yaml', 'lanerelay.yml', '.lanerelay/config.yaml'];
 
 export const DEFAULTS = {
   paidFirst: true,
   maxWaitMinutes: 60,
   defaultResetMinutes: 60,
   timeoutMinutes: 0,
-  stateFile: '.qp/state.json',
-  logsDir: '.qp/logs',
-  runsDir: '.qp/runs',
-  queueDir: '.qp/queue',
-  leasesDir: '.qp/leases',
+  stateFile: '.lanerelay/state.json',
+  logsDir: '.lanerelay/logs',
+  runsDir: '.lanerelay/runs',
+  queueDir: '.lanerelay/queue',
+  leasesDir: '.lanerelay/leases',
   pollSeconds: 3,
 } as const;
 

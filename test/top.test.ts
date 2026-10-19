@@ -18,7 +18,7 @@ const NOW = new Date('2026-10-18T12:00:00Z');
 
 const dirs: string[] = [];
 function tmp(): string {
-  const d = mkdtempSync(join(tmpdir(), 'qp-top-'));
+  const d = mkdtempSync(join(tmpdir(), 'lanerelay-top-'));
   dirs.push(d);
   return d;
 }
@@ -137,7 +137,7 @@ describe('formatTop', () => {
       }),
     );
     const text = formatTop(snap, { now: NOW, width: 100, repo: 'demo' });
-    expect(text).toContain('qp top');
+    expect(text).toContain('lanerelay top');
     expect(text).toContain('demo');
     expect(text).toContain('LANES');
     expect(text).toContain('claude');
@@ -148,7 +148,7 @@ describe('formatTop', () => {
     expect(text).toContain('migrate the database');
     expect(text).toContain('queue: 1 pending');
     expect(text).toContain('queued task');
-    expect(text).toContain('qp run --resume r-dead');
+    expect(text).toContain('lanerelay run --resume r-dead');
   });
 
   it('emits ANSI codes only when color is on', () => {

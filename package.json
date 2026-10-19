@@ -1,11 +1,12 @@
 {
-  "name": "quota-pilot",
+  "name": "lanerelay",
   "version": "0.8.0",
   "description": "Run one coding task across several AI agent CLIs; when one lane hits its quota, the task hops to the next.",
   "license": "MIT",
   "type": "commonjs",
   "bin": {
-    "qp": "dist/cli.js"
+    "lanerelay": "dist/cli.js",
+    "lr": "dist/cli.js"
   },
   "files": [
     "dist"
