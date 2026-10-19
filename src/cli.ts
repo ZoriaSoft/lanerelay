@@ -4,8 +4,9 @@ import { basename, join } from 'node:path';
 import { Command, Option } from 'commander';
 import { ConfigError, DEFAULTS, findConfigFile, loadConfig, orderLanes, resolveLane } from './config.js';
 import { doctorChecks, formatDoctor } from './doctor.js';
-import { initConfig } from './init.js';
+import { ensureRuntimeDir, initConfig } from './init.js';
 import { runTask, type OrchestrateOptions } from './orchestrate.js';
+import { activeLaneCount, killActiveLanes } from './runner.js';
 import { LeaseSet } from './leases.js';
 import { DEFAULT_PROBE_PROMPT, probeLane, type ProbeResult } from './probe.js';
 import { deferDecision, TaskQueue } from './queue.js';
@@ -78,6 +79,8 @@ function report(verdict: TaskVerdict, runId?: string): number {
  */
 const liveRecords = new Set<{ runs: RunStore; rec: RunRecord }>();
 let signalsWired = false;
+/** Set once a shutdown signal arrived: records stay 'interrupted'. */
+let shuttingDown = false;
 
 function wireSignals(): void {
   if (signalsWired) return;
@@ -86,14 +89,25 @@ function wireSignals(): void {
     for (const { runs, rec } of liveRecords) runs.markInterrupted(rec);
   };
   process.on('exit', markAll);
-  process.on('SIGINT', () => {
+  // Lane children live in their own process groups, so a Ctrl-C at the
+  // terminal never reaches them. Stop them explicitly (SIGTERM, then
+  // SIGKILL after a grace period) before exiting; a second signal skips
+  // the grace period.
+  let stopping = false;
+  const onSignal = (code: number) => {
+    shuttingDown = true;
     markAll();
-    process.exit(130);
-  });
-  process.on('SIGTERM', () => {
-    markAll();
-    process.exit(143);
-  });
+    if (stopping) {
+      void killActiveLanes(0).finally(() => process.exit(code));
+      return;
+    }
+    stopping = true;
+    if (activeLaneCount() > 0) process.stderr.write('\nlanerelay: stopping running lane(s)…\n');
+    void killActiveLanes(3_000).finally(() => process.exit(code));
+  };
+  process.on('SIGINT', () => onSignal(130));
+  process.on('SIGTERM', () => onSignal(143));
+  process.on('SIGHUP', () => onSignal(129));
 }
 
 /**
@@ -106,6 +120,7 @@ function wireRecord(runs: RunStore, rec: RunRecord): OrchestrateOptions['onUpdat
   const entry = { runs, rec };
   liveRecords.add(entry);
   return (attempts: AttemptResult[], verdict: TaskVerdict | null) => {
+    if (shuttingDown) return;
     rec.attempts = attempts;
     if (verdict === null) {
       runs.update(rec);
@@ -140,15 +155,27 @@ function parseDiff(v: string | undefined): 'none' | 'stat' | 'full' | undefined 
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// Read at runtime so --version can never drift from package.json.
+const VERSION: string = (() => {
+  // Standalone binaries (scripts/compile.sh) bake the version in.
+  if (process.env.LANERELAY_BUILD_VERSION) return process.env.LANERELAY_BUILD_VERSION;
+  try {
+    return (JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as { version: string }).version;
+  } catch {
+    return '0.0.0';
+  }
+})();
+
 const program = new Command();
 program
   .name('lanerelay')
   .description('Run one coding task across several AI agent CLIs; quota-limit hits hand the task to the next lane.')
-  .version('0.8.0')
+  .version(VERSION)
   .option('--config <path>', 'path to lanerelay.yaml');
 
 program
   .command('run')
+  .description('run a task through the lane chain; a lane that hits its limit hands off to the next')
   .argument('[task...]', 'task description (omit with --resume to reuse the recorded task)')
   .option('-c, --chain <chain>', 'named chain from config, or comma-separated lane names')
   .option('--resume <id>', 'continue an earlier run (see `lanerelay report` for resumable ids)')
@@ -213,6 +240,7 @@ program
         return;
       }
 
+      ensureRuntimeDir(cwd);
       const lanes = chain ? orderLanes(ctx.cfg, chain) : orderLanes(ctx.cfg, undefined, ctx.store);
       const rec = ctx.runs.create({ task, chain, resumedFrom, attempts: resumeFrom });
       if (resumedRec) ctx.runs.markResumed(resumedRec, rec.id);
@@ -237,6 +265,7 @@ program
       } finally {
         leases.releaseRun(rec.id);
       }
+      if (shuttingDown) return; // the signal handler owns the exit
       process.exitCode = report(verdict, rec.id);
     },
   );
@@ -443,12 +472,20 @@ program
           process.exitCode = 1;
           return;
         }
+        rmSync(lock, { force: true });
       }
-      writeFileSync(lock, String(process.pid));
+      ensureRuntimeDir(cwd);
+      try {
+        // O_EXCL: two watchers starting at the same moment can't both win.
+        writeFileSync(lock, String(process.pid), { flag: 'wx' });
+      } catch {
+        process.stderr.write('lanerelay: another watcher just started in this repo\n');
+        process.exitCode = 1;
+        return;
+      }
       const cleanup = () => rmSync(lock, { force: true });
       process.on('exit', cleanup);
-      process.on('SIGINT', () => process.exit(130));
-      process.on('SIGTERM', () => process.exit(143));
+      wireSignals();
 
       const jobs = opts.jobs ?? ctx.cfg.queue?.jobs ?? 1;
       if (!Number.isInteger(jobs) || jobs < 1) {
@@ -475,7 +512,8 @@ program
           }
           process.stderr.write(`lanerelay: [w${wid}] running ${item.id}: ${item.task.slice(0, 80)}\n`);
           const chain = item.chain ?? opts.chain;
-          const lanes = chain ? orderLanes(ctx.cfg, chain) : orderLanes(ctx.cfg, undefined, ctx.store);
+          ensureRuntimeDir(cwd);
+      const lanes = chain ? orderLanes(ctx.cfg, chain) : orderLanes(ctx.cfg, undefined, ctx.store);
           const rec = ctx.runs.create({ task: item.task, chain });
           try {
             const verdict = await runTask(item.task, ctx.cfg, lanes, ctx.store, {

@@ -1,0 +1,2 @@
+Error: Configuration is invalid at /home/user/.config/opencode/opencode.json
+↳ Unrecognized key:

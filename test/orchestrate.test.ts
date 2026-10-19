@@ -91,7 +91,7 @@ describe('runTask', () => {
   it('returns all-blocked when every lane is limited and --no-wait', async () => {
     const dir = workdir();
     const cfgPath = cfg(dir, [
-      fakeLane(dir, 'x', 'echo "rate limit" >&2; exit 1', { kind: 'codex' }),
+      fakeLane(dir, 'x', 'echo "Rate limit exceeded" >&2; exit 1', { kind: 'codex' }),
       fakeLane(dir, 'y', 'echo "429 Too Many Requests" >&2; exit 1', { kind: 'codex' }),
     ]);
     const config = loadConfig(cfgPath);

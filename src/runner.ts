@@ -46,6 +46,8 @@ export interface RunResult {
   exitCode: number | null;
   /** true when we killed the child for exceeding lane.timeoutMinutes. */
   timedOut: boolean;
+  /** true when killActiveLanes stopped the child (Ctrl-C / shutdown). */
+  cancelled?: boolean;
   /** Last tailBytes of combined stdout+stderr (chronological). */
   outputTail: string;
   logFile?: string;
@@ -80,17 +82,66 @@ class RingBuffer {
 
 const DEFAULT_TAIL = 64 * 1024;
 
+/**
+ * Every lane child that is still running, so a signal handler can take the
+ * whole set down. Lane children run in their own process group (posix), so
+ * a terminal Ctrl-C does NOT reach them on its own — without this they
+ * would keep burning quota after lanerelay exits.
+ */
+const active = new Set<{
+  pid: number;
+  kill: (signal: NodeJS.Signals) => void;
+  done: Promise<unknown>;
+  cancel: () => void;
+}>();
+
+/** Number of lane children currently running (tests / diagnostics). */
+export function activeLaneCount(): number {
+  return active.size;
+}
+
+/**
+ * Stop every running lane child: SIGTERM to each process group, then
+ * SIGKILL to whatever is still alive after `graceMs`. Resolves once all
+ * children have exited (or the hard kill was sent).
+ */
+export async function killActiveLanes(graceMs = 3_000): Promise<void> {
+  if (active.size === 0) return;
+  const entries = [...active];
+  for (const e of entries) {
+    e.cancel();
+    e.kill('SIGTERM');
+  }
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<'timeout'>((r) => {
+    timer = setTimeout(() => r('timeout'), graceMs);
+  });
+  const res = await Promise.race([Promise.all(entries.map((e) => e.done)).then(() => 'done' as const), timeout]);
+  clearTimeout(timer);
+  // Grandchildren can outlive the group leader; a final SIGKILL to the
+  // group is harmless when it is already gone.
+  for (const e of entries) e.kill('SIGKILL');
+  if (res === 'timeout') await new Promise((r) => setTimeout(r, 100));
+}
+
 /** Run one lane attempt. Command template gets {{prompt}} substituted (quoted). */
 export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<RunResult> {
   const spec = buildSpawn(lane.command, prompt, process.platform);
   const tail = new RingBuffer(opts.tailBytes ?? DEFAULT_TAIL);
   const tee = opts.tee ?? true;
   const started = Date.now();
-  const { promise, resolve } = Promise.withResolvers<RunResult>();
+  // Not Promise.withResolvers: that is Node 22+, and we support Node 20.
+  let resolve!: (r: RunResult) => void;
+  const promise = new Promise<RunResult>((r) => {
+    resolve = r;
+  });
 
   const child = spawn(spec.file, spec.args, {
     cwd: opts.cwd,
     env: { ...process.env, LR_PROMPT: prompt },
+    // Never hand our stdin to a lane: headless agent CLIs (claude -p,
+    // codex exec) otherwise wait for piped input or steal the terminal.
+    stdio: ['ignore', 'pipe', 'pipe'],
     // A process group of our own lets killTree hit the whole tree on posix.
     detached: process.platform !== 'win32',
   });
@@ -127,6 +178,17 @@ export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<R
       /* already gone */
     }
   };
+  let cancelled = false;
+  const entry = {
+    pid: child.pid ?? -1,
+    kill: killTree,
+    done: promise,
+    cancel: () => {
+      cancelled = true;
+    },
+  };
+  if (child.pid !== undefined) active.add(entry);
+
   if (lane.timeoutMinutes > 0) {
     timer = setTimeout(() => {
       timedOut = true;
@@ -154,6 +216,7 @@ export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<R
     resolve({
       exitCode,
       timedOut,
+      cancelled,
       outputTail: tail.text(),
       logFile,
       durationMs: Date.now() - started,
@@ -163,6 +226,7 @@ export function runLane(lane: Lane, prompt: string, opts: RunOptions): Promise<R
   const finishOnce = (code: number | null) => {
     if (finished) return;
     finished = true;
+    active.delete(entry);
     finish(code);
   };
 

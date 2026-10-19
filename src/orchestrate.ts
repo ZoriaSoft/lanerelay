@@ -1,4 +1,4 @@
-import { detectLimit, detectUsage } from './detect.js';
+import { authErrorAfter, detectionWindow, detectLimit, detectUsage } from './detect.js';
 import { gitDiffPatch, gitDiffSummary } from './git.js';
 import { fireHooks } from './hooks.js';
 import { mergePatterns } from './patterns.js';
@@ -78,17 +78,34 @@ export async function runTask(
   const started = now().getTime();
   const attempts: AttemptResult[] = [...(opts.resume ?? [])];
 
+  // Lanes that failed or timed out during THIS invocation are not retried:
+  // a broken lane (bad flag, missing login, hung CLI) would otherwise be
+  // re-run every round while the others wait for their resets. Attempts
+  // seeded from --resume don't count — resuming is an explicit retry.
+  const broken = new Set<string>();
+
   for (;;) {
-    const free = lanes.filter(
+    const candidates = lanes.filter((l) => !broken.has(l.name));
+    if (candidates.length === 0) {
+      const last = attempts[attempts.length - 1];
+      const msg =
+        last?.verdict.type === 'failed'
+          ? last.verdict.evidence
+          : last?.verdict.type ?? 'unknown';
+      const verdict: TaskVerdict = { type: 'failed', attempts, lastError: msg };
+      notify(attempts, verdict);
+      return verdict;
+    }
+    const free = candidates.filter(
       (l) => store.blockedUntil(l.name, now()) === null && !opts.leases?.heldByOther(l.name, owner),
     );
     if (free.length === 0) {
-      const resets = lanes
+      const resets = candidates
         .map((l) => store.blockedUntil(l.name, now()))
         .filter((d): d is Date => d !== null)
         .sort((a, b) => a.getTime() - b.getTime());
       const earliest = resets[0] ?? null;
-      const leased = opts.leases !== undefined && lanes.some((l) => opts.leases!.heldByOther(l.name, owner));
+      const leased = opts.leases !== undefined && candidates.some((l) => opts.leases!.heldByOther(l.name, owner));
       if (!wait || (earliest === null && !leased)) {
         const verdict: TaskVerdict = { type: 'all-blocked', attempts, earliestReset: earliest };
         notify(attempts, verdict);
@@ -108,7 +125,7 @@ export async function runTask(
         await sleep(LEASE_POLL_MS);
         continue;
       }
-      const laneName = lanes.find((l) => store.blockedUntil(l.name, now())?.getTime() === earliest.getTime())?.name ?? 'a lane';
+      const laneName = candidates.find((l) => store.blockedUntil(l.name, now())?.getTime() === earliest.getTime())?.name ?? 'a lane';
       process.stderr.write(`lanerelay: all lanes blocked; waiting until ${earliest.toLocaleTimeString()} for ${laneName}\n`);
       await sleep(waitMs + 250);
       continue;
@@ -137,6 +154,12 @@ export async function runTask(
         opts.leases?.release(lane.name);
       }
 
+      if (result.cancelled) {
+        // Shutting down (Ctrl-C): the lane did nothing wrong. Record no
+        // verdict for it; the caller marks the run interrupted.
+        return { type: 'failed', attempts, lastError: 'cancelled' };
+      }
+
       const patterns = mergePatterns(lane.kind, lane.patterns);
       const usage = detectUsage(result.outputTail, patterns);
       if (usage) store.markUsage(lane.name, usage);
@@ -144,6 +167,7 @@ export async function runTask(
       if (result.timedOut) {
         attempts.push({ lane: lane.name, verdict: { type: 'timeout', outputTail: result.outputTail }, ...pick(result) });
         store.markResult(lane.name, 'timeout');
+        broken.add(lane.name);
         await fireHooks(cfg.hooks, 'fail', { event: 'fail', lane: lane.name, task, status: 'timeout' });
         notify(attempts, null);
         continue;
@@ -191,17 +215,19 @@ export async function runTask(
         return verdict;
       }
 
+      const auth = authErrorAfter(detectionWindow(result.outputTail));
       attempts.push({
         lane: lane.name,
         verdict: {
           type: 'failed',
           outputTail: result.outputTail,
           exitCode: result.exitCode,
-          evidence: `exit code ${result.exitCode}`,
+          evidence: auth ? `auth error (exit ${result.exitCode}): ${auth}` : `exit code ${result.exitCode}`,
         },
         ...pick(result),
       });
       store.markResult(lane.name, 'failed');
+      broken.add(lane.name);
       await fireHooks(cfg.hooks, 'fail', {
         event: 'fail',
         lane: lane.name,
@@ -214,21 +240,8 @@ export async function runTask(
     }
 
     // Every free lane was tried this round; nothing succeeded. Loop again:
-    // lanes blocked during this round are filtered out; if all are now
-    // blocked the wait logic above handles it; if all failed (not blocked),
-    // bail rather than spin.
-    const anyBlocked = lanes.some((l) => store.blockedUntil(l.name, now()) !== null);
-    const allFailed = lanes.every((l) => attempts.some((a) => a.lane === l.name));
-    if (!anyBlocked && allFailed) {
-      const last = attempts[attempts.length - 1];
-      const msg =
-        last?.verdict.type === 'failed'
-          ? `exit code ${last.verdict.exitCode}`
-          : last?.verdict.type ?? 'unknown';
-      const verdict: TaskVerdict = { type: 'failed', attempts, lastError: msg };
-      notify(attempts, verdict);
-      return verdict;
-    }
+    // broken lanes drop out, blocked ones wait for their reset above, and
+    // an all-broken chain ends as 'failed' at the top of the loop.
   }
 }
 

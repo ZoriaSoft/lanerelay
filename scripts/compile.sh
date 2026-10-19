@@ -25,12 +25,15 @@ targets="$*"
 [ "$targets" = "all" ] && targets="linux-x64 linux-arm64 darwin-x64 darwin-arm64 windows-x64"
 
 mkdir -p dist/bin
+version=$(node -p "require('./package.json').version" 2>/dev/null || echo unknown)
 for t in $targets; do
   case "$t" in
     windows*) ext=".exe" ;;
     *) ext="" ;;
   esac
   out="dist/bin/lanerelay-${t}${ext}"
-  $BUN build --compile --target="bun-${t}" --outfile "$out" src/cli.ts
+  $BUN build --compile --target="bun-${t}" \
+    --define "process.env.LANERELAY_BUILD_VERSION=\"$version\"" \
+    --outfile "$out" src/cli.ts
   echo "built $out"
 done

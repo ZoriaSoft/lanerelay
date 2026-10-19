@@ -19,7 +19,7 @@ lanes:
 
   - name: codex
     kind: codex
-    command: "codex exec --full-auto {{prompt}}"
+    command: "codex exec --sandbox workspace-write {{prompt}}"
     model: gpt-5.5-codex
     cost: paid
     priority: 1
@@ -32,6 +32,12 @@ lanes:
     cost: free
     priority: 2
     defaultResetMinutes: 60
+
+  # - name: opencode
+  #   kind: opencode
+  #   command: "opencode run {{prompt}}"
+  #   cost: free
+  #   priority: 3
 
 # Named chains for 'lanerelay run --chain <name>'; --chain a,b,c also works inline.
 chains:
@@ -67,6 +73,18 @@ export interface InitResult {
 }
 
 /**
+ * Make `.lanerelay/` ignore itself (a `*` .gitignore inside it), so attempt
+ * logs — which contain prompts and agent output — never get committed, even
+ * in a repo whose own .gitignore doesn't mention the dir.
+ */
+export function ensureRuntimeDir(cwd: string): void {
+  const dir = join(cwd, '.lanerelay');
+  mkdirSync(dir, { recursive: true });
+  const gi = join(dir, '.gitignore');
+  if (!existsSync(gi)) writeFileSync(gi, '# lanerelay runtime state (logs contain prompts) — never commit\n*\n');
+}
+
+/**
  * Write the starter config into `cwd` (lanerelay.yaml) and make sure
  * `.lanerelay/` is ignored. Never overwrites an existing config.
  */
@@ -76,7 +94,7 @@ export function initConfig(cwd: string): InitResult {
     return { configPath: path, created: false };
   }
   writeFileSync(path, STARTER_CONFIG);
-  mkdirSync(join(cwd, '.lanerelay'), { recursive: true });
+  ensureRuntimeDir(cwd);
 
   const gi = join(cwd, '.gitignore');
   let note: string | undefined;

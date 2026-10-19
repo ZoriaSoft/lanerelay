@@ -3,6 +3,14 @@ import { detectLimit, detectUsage, parseResetTime } from '../src/detect.js';
 import { mergePatterns } from '../src/patterns.js';
 import type { LaneKind } from '../src/types.js';
 
+
+/** Wall-clock hour/minute of `d` in an IANA zone (tests must not depend on the machine TZ). */
+function wallHM(d: Date | null | undefined, tz: string): [number, number] {
+  if (!d) return [-1, -1];
+  const f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: 'numeric', hourCycle: 'h23' });
+  const p = Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
+  return [Number(p.hour) % 24, Number(p.minute)];
+}
 const NOW = new Date('2026-10-18T10:00:00Z');
 
 function detect(kind: LaneKind, output: string, exitCode: number | null, now = NOW) {
@@ -49,8 +57,8 @@ describe('detectLimit: claude', () => {
     const out = `You've hit your limit · resets 9:10pm (Europe/Kiev)\n`;
     const d = detect('claude', out, 1);
     expect(d?.limited).toBe(true);
-    expect(d?.resetAt?.getHours()).toBe(21);
-    expect(d?.resetAt?.getMinutes()).toBe(10);
+    // The clock is read in the named zone, not the machine's.
+    expect(wallHM(d?.resetAt, 'Europe/Kyiv')).toEqual([21, 10]);
   });
 
   it('catches "hit your session limit" (headless report)', () => {

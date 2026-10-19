@@ -1,4 +1,4 @@
-import { detectLimit, detectUsage } from './detect.js';
+import { authErrorAfter, detectionWindow, detectLimit, detectUsage } from './detect.js';
 import { mergePatterns } from './patterns.js';
 import { runLane, type RunOptions } from './runner.js';
 import type { LaneStore } from './state.js';
@@ -19,37 +19,9 @@ export interface ProbeResult {
   durationMs: number;
 }
 
-/**
- * Auth/billing/plan failures that never resolve on their own. Probing these
- * marks the lane auth-error instead of burning retries; `lanerelay run` treats the
- * lane as failed and moves on.
- */
-const AUTH_PATTERNS: RegExp[] = [
-  /\b401\b.*\b(?:unauthorized|authentication|auth)/i,
-  /\b403\b.*\b(?:forbidden|permission denied|access denied)/i,
-  /invalid[_ ]?(?:x?[-_])?api[_ ]?key/i,
-  /incorrect api key/i,
-  /authentication (?:failed|error|required)/i,
-  /unauthorized/i,
-  /invalid(?: or expired)? (?:oauth )?token/i,
-  /token (?:expired|revoked)/i,
-  /not (?:logged in|authenticated|signed in)/i,
-  /please (?:run|use)?\s*\/?login\b/i,
-  /auth(?:entication)? token is (?:missing|invalid)/i,
-  /to use codex with your chatgpt plan, upgrade to plus/i,
-  /subscription (?:required|expired|inactive)/i,
-  /billing (?:error|required|disabled)/i,
-  /no (?:active|valid) (?:subscription|plan)/i,
-];
-
 /** Find the first auth-evidence line in output; null when none matches. */
 export function detectAuthError(output: string): string | null {
-  for (const line of output.split('\n')) {
-    for (const p of AUTH_PATTERNS) {
-      if (p.test(line)) return line.trim().slice(0, 300);
-    }
-  }
-  return null;
+  return authErrorAfter(detectionWindow(output), 0);
 }
 
 export interface ProbeOptions {

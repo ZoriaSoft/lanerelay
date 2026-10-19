@@ -64,8 +64,9 @@ describe('probeLane', () => {
     const s = new LaneStore(join(dir, 'state.json'));
     const r = await probeLane(lane, s, { cwd: dir, now: () => NOW });
     expect(r.status).toBe('limited');
-    expect(r.resetAt?.getHours()).toBe(21);
-    expect(s.blockedUntil('a', NOW)?.getHours()).toBe(21);
+    // 9:10pm in Kyiv, whatever the machine zone is.
+    expect(r.resetAt?.toISOString()).toBe('2026-10-18T18:10:00.000Z');
+    expect(s.blockedUntil('a', NOW)?.toISOString()).toBe('2026-10-18T18:10:00.000Z');
   });
 
   it('falls back to defaultResetMinutes when no reset is printed', async () => {

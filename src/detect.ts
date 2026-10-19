@@ -1,4 +1,42 @@
-import type { KindPatterns } from './patterns.js';
+import { AUTH_PATTERNS, type KindPatterns } from './patterns.js';
+
+/**
+ * Limit banners are the LAST thing an agent CLI prints before it exits.
+ * Only the final lines are scanned, so an agent that spent its run talking
+ * about "rate limiting" or quoting a 429 handler earlier in the session
+ * cannot trip detection. Counted in non-empty lines, not bytes: a single
+ * long JSON error line still fits.
+ */
+export const DETECT_LINES = 60;
+
+/** The last `DETECT_LINES` non-empty lines of an output tail. */
+export function detectionWindow(outputTail: string, lines = DETECT_LINES): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = outputTail.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\r(?!\n)/g, '\n');
+  const all = clean.split('\n');
+  let kept = 0;
+  let i = all.length;
+  while (i > 0 && kept < lines) {
+    i--;
+    if (all[i].trim() !== '') kept++;
+  }
+  return all.slice(i).join('\n');
+}
+
+/**
+ * The first line at or after `fromIndex` that reads as an auth / login /
+ * billing-setup failure, or null. Such a lane is broken, not out of quota:
+ * waiting for a "reset" would never help.
+ */
+export function authErrorAfter(output: string, fromIndex = 0): string | null {
+  const lineStart = output.lastIndexOf('\n', fromIndex) + 1;
+  for (const line of output.slice(lineStart).split('\n')) {
+    for (const p of AUTH_PATTERNS) {
+      if (p.test(line)) return line.trim().slice(0, 300);
+    }
+  }
+  return null;
+}
 
 export interface Detection {
   limited: true;
@@ -16,6 +54,69 @@ const MONTHS: Record<string, number> = {
 const WEEKDAYS: Record<string, number> = {
   sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
 };
+
+/** A time zone named next to a reset time: "(UTC)", "(Europe/Kiev)", "3am UTC". */
+const TZ_HINT = /\(\s*(UTC|GMT|Z|[A-Za-z]+\/[A-Za-z_+-]+(?:\/[A-Za-z_+-]+)?)\s*\)|\b(UTC|GMT)\b/;
+
+interface Wall {
+  y: number;
+  mo: number;
+  d: number;
+  h: number;
+  mi: number;
+  wd: number;
+}
+
+/** Wall-clock fields of `at` in `tz`; null for an unknown zone. */
+function wallIn(tz: string, at: Date): Wall | null {
+  try {
+    const f = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      weekday: 'short',
+    });
+    const parts: Record<string, string> = {};
+    for (const p of f.formatToParts(at)) parts[p.type] = p.value;
+    return {
+      y: Number(parts.year),
+      mo: Number(parts.month) - 1,
+      d: Number(parts.day),
+      h: Number(parts.hour) % 24,
+      mi: Number(parts.minute),
+      wd: WEEKDAYS[parts.weekday.toLowerCase().slice(0, 3)] ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The instant whose wall clock in `tz` reads y-mo-d h:mi (overflowing days roll). */
+function zonedInstant(tz: string, y: number, mo: number, d: number, h: number, mi: number): Date {
+  const target = Date.UTC(y, mo, d, h, mi);
+  let guess = target;
+  // Two passes settle DST edges: offset at the guess, then at the result.
+  for (let i = 0; i < 2; i++) {
+    const w = wallIn(tz, new Date(guess))!;
+    const asUtc = Date.UTC(w.y, w.mo, w.d, w.h, w.mi);
+    guess += target - asUtc;
+  }
+  return new Date(guess);
+}
+
+function zoneOf(s: string): string | null {
+  const m = TZ_HINT.exec(s);
+  if (!m) return null;
+  let tz = m[1] ?? m[2];
+  if (tz === 'Z' || tz === 'GMT') tz = 'UTC';
+  // Old IANA alias some CLIs print; Intl may only know the new name.
+  if (tz === 'Europe/Kiev' && wallIn(tz, new Date()) === null) tz = 'Europe/Kyiv';
+  return wallIn(tz, new Date()) ? tz : null;
+}
 
 /**
  * Parse a free-form reset hint like "40 minutes", "1 hour 23 minutes",
@@ -67,6 +168,14 @@ export function parseResetTime(text: string, now: Date): Date | null {
   if (wd && /^[a-z]{3,9}/i.test(wd[0]) && wd[0].toLowerCase().slice(0, 3) in WEEKDAYS) {
     const target = WEEKDAYS[wd[0].toLowerCase().slice(0, 3)];
     const t = clockMatch(s);
+    const tz = zoneOf(s);
+    if (tz) {
+      const w = wallIn(tz, now)!;
+      let delta = (target - w.wd + 7) % 7;
+      let d = zonedInstant(tz, w.y, w.mo, w.d + delta, t?.hour ?? 0, t?.minute ?? 0);
+      if (d.getTime() <= now.getTime()) d = zonedInstant(tz, w.y, w.mo, w.d + delta + 7, t?.hour ?? 0, t?.minute ?? 0);
+      return d;
+    }
     const d = new Date(now);
     d.setHours(t?.hour ?? 0, t?.minute ?? 0, 0, 0);
     let delta = (target - d.getDay() + 7) % 7;
@@ -85,6 +194,12 @@ export function parseResetTime(text: string, now: Date): Date | null {
     const day = parseInt(md[2], 10);
     const year = md[3] ? parseInt(md[3], 10) : now.getFullYear();
     const t = clockMatch(s.slice(md.index + md[0].length));
+    const tz = zoneOf(s);
+    if (tz) {
+      let d = zonedInstant(tz, year, month, day, t?.hour ?? 0, t?.minute ?? 0);
+      if (!md[3] && d.getTime() <= now.getTime()) d = zonedInstant(tz, year + 1, month, day, t?.hour ?? 0, t?.minute ?? 0);
+      return d;
+    }
     const d = new Date(year, month, day, t?.hour ?? 0, t?.minute ?? 0, 0, 0);
     if (!md[3] && d.getTime() <= now.getTime()) d.setFullYear(d.getFullYear() + 1);
     return d;
@@ -93,6 +208,15 @@ export function parseResetTime(text: string, now: Date): Date | null {
   // Plain clock time: "12pm", "3:30 pm", "14:30" → today if still future, else tomorrow
   const t = clockMatch(s);
   if (t) {
+    // "resets 3am (UTC)" / "9:10pm (Europe/Kiev)": the clock is in that
+    // zone, not ours — claude prints its reset in the account's zone.
+    const tz = zoneOf(s);
+    if (tz) {
+      const w = wallIn(tz, now)!;
+      let d = zonedInstant(tz, w.y, w.mo, w.d, t.hour, t.minute);
+      if (d.getTime() <= now.getTime()) d = zonedInstant(tz, w.y, w.mo, w.d + 1, t.hour, t.minute);
+      return d;
+    }
     const d = new Date(now);
     d.setHours(t.hour, t.minute, 0, 0);
     if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1);
@@ -140,13 +264,16 @@ function evidenceLine(output: string, index: number): string {
  * - exitCode 0 with no explicit reset hint → transient the lane absorbed →
  *   not limited.
  * - An explicit cap message wins over earlier transient noise in the tail.
+ * - An auth/login error on or after the cap line → not limited (broken lane).
+ * - Only the last DETECT_LINES non-empty lines are scanned.
  */
 export function detectLimit(
-  outputTail: string,
+  fullTail: string,
   exitCode: number | null,
   patterns: KindPatterns,
   now: Date = new Date(),
 ): Detection | null {
+  const outputTail = detectionWindow(fullTail);
   if (exitCode !== null && patterns.exitCodes.includes(exitCode)) {
     return {
       limited: true,
@@ -187,6 +314,11 @@ export function detectLimit(
       if (mLineStart === hitLineStart && m.index < lastHitIndex) return null;
     }
   }
+
+  // An auth/login failure on the cap line or after it wins: "401
+  // Unauthorized … retrying" or "Not logged in" is a broken lane, and a
+  // reset would never fix it.
+  if (authErrorAfter(outputTail, lastHitIndex) !== null) return null;
 
   const resetAt = scanReset(outputTail, patterns, now);
   if (exitCode === 0 && resetAt === null) return null;

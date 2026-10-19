@@ -28,12 +28,47 @@ export interface KindPatterns {
 
 const re = (s: string) => new RegExp(s, 'i');
 
+/**
+ * Auth/login/billing-setup failures. They never resolve on their own, so
+ * they are NOT quota limits: detectLimit ignores a cap match when one of
+ * these sits on the same line or later, and the orchestrator reports the
+ * lane as failed (auth) instead of blocking it until a fake reset.
+ */
+export const AUTH_PATTERNS: RegExp[] = [
+  /\b401\b.*\b(?:unauthorized|authentication|auth)/i,
+  /\b403\b.*\b(?:forbidden|permission denied|access denied)/i,
+  /invalid[_ ]?(?:x?[-_])?api[_ ]?key/i,
+  /incorrect api key/i,
+  /authentication (?:failed|error|required)/i,
+  /\bunauthorized\b/i,
+  /invalid(?: or expired)? (?:oauth )?token/i,
+  /token (?:expired|revoked)/i,
+  // claude 2.x headless: "Not logged in · Please run /login"
+  /not (?:logged in|authenticated|signed in)/i,
+  /please (?:run|use)?\s*\/?login\b/i,
+  /missing bearer or basic authentication/i,
+  /auth(?:entication)? token is (?:missing|invalid)/i,
+  /to use codex with your chatgpt plan, upgrade to plus/i,
+  /subscription (?:required|expired|inactive)/i,
+  /billing (?:error|required|disabled)/i,
+  /no (?:active|valid) (?:subscription|plan)/i,
+];
+
+/**
+ * HTTP 429 only when it reads like a status: next to "too many requests",
+ * "rate"/"quota"/"limit", or after status/code/HTTP/error. A bare 429
+ * ("line 429", "429 files changed") is not a limit.
+ */
+const HTTP_429 = String.raw`(?:\b429\b[^\n]{0,60}?(?:too many requests|rate|quota|limit|exhaust)|(?:status|code|http|error|api error)[^\n\d]{0,12}\b429\b)`;
+
+/** "rate limit" only as a verdict, never as a topic ("add rate limiting"). */
+const RATE_LIMITED = String.raw`(?:rate[ _-]?limit(?:ed\b|_error|_exceeded|\s+(?:exceeded|reached|hit|error))|rate[ _-]?limit[^\n]{0,40}?(?:try again|retry (?:in|after)|resets? (?:in|at))|you(?:'ve| have| are|'re)? been rate[ _-]?limited|ratelimiterror)`;
+
 /** Patterns shared by every lane kind. */
 const GENERIC: KindPatterns = {
   limited: [
-    re(String.raw`\b429\b`),
-    re(String.raw`rate.?limit(?:ed|ing)?\b`),
-    re(String.raw`rate_limit_(?:error|exceeded)`),
+    re(HTTP_429),
+    re(RATE_LIMITED),
     re(String.raw`quota (?:exceeded|exhausted|reached)`),
     re(String.raw`usage (?:limit|cap) (?:reached|exceeded|exhausted)`),
     re(String.raw`too many requests`),
@@ -175,9 +210,7 @@ const GEMINI: KindPatterns = {
 const GLM: KindPatterns = {
   limited: [
     re(String.raw`insufficient (?:balance|quota|credit)`),
-    re(String.raw`rate limit`),
-    re(String.raw`\b429\b`),
-    re(String.raw`usage limit`),
+    re(String.raw`usage limit (?:reached|exceeded|exhausted)`),
   ],
   notLimit: [],
   reset: GENERIC.reset,
@@ -189,8 +222,6 @@ const AIDER: KindPatterns = {
     re(String.raw`RateLimitError`),
     re(String.raw`openai\.RateLimitError`),
     re(String.raw`litellm\.\w*RateLimit`),
-    re(String.raw`rate limit`),
-    re(String.raw`\b429\b`),
   ],
   notLimit: [re(String.raw`retrying in`)],
   reset: GENERIC.reset,
@@ -199,10 +230,7 @@ const AIDER: KindPatterns = {
 
 const OPENCODE: KindPatterns = {
   limited: [
-    re(String.raw`rate.?limit`),
-    re(String.raw`\b429\b`),
-    re(String.raw`quota (?:exceeded|exhausted)`),
-    re(String.raw`usage limit`),
+    re(String.raw`usage limit (?:reached|exceeded|exhausted)`),
   ],
   notLimit: [],
   reset: GENERIC.reset,
@@ -211,10 +239,7 @@ const OPENCODE: KindPatterns = {
 
 const CURSOR: KindPatterns = {
   limited: [
-    re(String.raw`rate.?limit`),
-    re(String.raw`usage (?:limit|cap)`),
     re(String.raw`out of (?:requests|usage)`),
-    re(String.raw`\b429\b`),
   ],
   notLimit: [],
   reset: GENERIC.reset,

@@ -1,0 +1,24 @@
+Reading additional input from stdin...
+OpenAI Codex v0.163.0
+--------
+workdir: /work/demo
+model: gpt-6.1-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 00000000-0000-0000-0000-000000000000
+--------
+user
+Reply with exactly this word and nothing else: OK
+warning: Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces.
+2026-10-19T05:17:40.000000Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses
+2026-10-19T05:17:41.000000Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses
+ERROR: Reconnecting... 1/5
+ERROR: Reconnecting... 2/5
+ERROR: Reconnecting... 3/5
+ERROR: Reconnecting... 4/5
+ERROR: Reconnecting... 5/5
+ERROR: unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: <ray>, request id: req_00000000000000000000000000000000
+ERROR: unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: <ray>, request id: req_00000000000000000000000000000000

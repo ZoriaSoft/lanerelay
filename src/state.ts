@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import type { QuotaWindow } from './detect.js';
@@ -57,12 +57,70 @@ const WINDOW_SORT: Record<QuotaWindow, number> = {
  * Per-repo lane state persisted in `.lanerelay/state.json`. Written atomically
  * (tmp + rename) so a killed run can't leave a half-written file.
  *
- * Parallel `lanerelay` processes share this file: reads and writes reload it when
- * its mtime changed since we last saw it, so blocks learned by a `lanerelay watch`
- * worker are visible to a concurrent `lanerelay run`. It is best-effort
- * last-writer-wins — a lane state is small enough that losing one update
- * between processes only costs a retried attempt.
+ * Parallel `lanerelay` processes share this file. Reads reload it when its
+ * mtime changed since we last saw it. Every write is a read-modify-write
+ * under an exclusive lock file (`state.json.lock`, O_EXCL create): the file
+ * is re-read inside the lock and only the touched lane is changed, so two
+ * runs blocking different lanes at the same moment never drop each other's
+ * update. A lock left by a dead process (or older than LOCK_STALE_MS) is
+ * broken; if the lock can't be had within LOCK_WAIT_MS the write goes ahead
+ * unlocked rather than hang a run.
  */
+const LOCK_WAIT_MS = 5_000;
+const LOCK_STALE_MS = 15_000;
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function pidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** Run `fn` while holding `<path>.lock`. Returns fn's result. */
+export function withFileLock<T>(path: string, fn: () => T): T {
+  const lock = `${path}.lock`;
+  mkdirSync(dirname(path), { recursive: true });
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  let fd: number | null = null;
+  while (fd === null) {
+    try {
+      fd = openSync(lock, 'wx');
+      writeSync(fd, String(process.pid));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') break;
+      let stale = false;
+      try {
+        const owner = parseInt(readFileSync(lock, 'utf8'), 10);
+        const age = Date.now() - statSync(lock).mtimeMs;
+        stale = age > LOCK_STALE_MS || (owner > 0 && owner !== process.pid && !pidAlive(owner));
+      } catch {
+        /* vanished between open and read: just retry */
+      }
+      if (stale) {
+        rmSync(lock, { force: true });
+        continue;
+      }
+      if (Date.now() > deadline) break;
+      sleepSync(5 + Math.floor(Math.random() * 10));
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    if (fd !== null) {
+      closeSync(fd);
+      rmSync(lock, { force: true });
+    }
+  }
+}
+
 export class LaneStore {
   private readonly path: string;
   private lanes: Record<string, LaneState>;
@@ -169,58 +227,70 @@ export class LaneStore {
       | { pctLeft: number; evidence: string; window?: QuotaWindow }
       | { pctLeft: number; evidence: string; window?: QuotaWindow }[],
   ): void {
-    this.refresh();
     const list = Array.isArray(readings) ? readings : [readings];
     if (list.length === 0) return;
-    const byWindow: Partial<Record<QuotaWindow, UsageObservation>> = {};
-    for (const o of this.lanes[lane]?.usage ?? []) byWindow[o.window] = o;
-    const at = new Date().toISOString();
-    for (const r of list) {
-      const w = r.window ?? 'other';
-      byWindow[w] = { pctLeft: r.pctLeft, window: w, observedAt: at, evidence: r.evidence };
-    }
-    this.lanes[lane] = { ...this.lanes[lane], usage: Object.values(byWindow) };
-    this.save();
+    this.mutate((lanes) => {
+      const byWindow: Partial<Record<QuotaWindow, UsageObservation>> = {};
+      for (const o of lanes[lane]?.usage ?? []) byWindow[o.window] = o;
+      const at = new Date().toISOString();
+      for (const r of list) {
+        const w = r.window ?? 'other';
+        byWindow[w] = { pctLeft: r.pctLeft, window: w, observedAt: at, evidence: r.evidence };
+      }
+      lanes[lane] = { ...lanes[lane], usage: Object.values(byWindow) };
+    });
   }
 
   markBlocked(lane: string, until: Date, reason: string): void {
-    this.refresh();
-    this.lanes[lane] = {
-      ...this.lanes[lane],
-      blockedUntil: until.toISOString(),
-      blockedReason: reason,
-      lastResult: 'limited',
-      lastRunAt: new Date().toISOString(),
-    };
-    this.save();
+    this.mutate((lanes) => {
+      lanes[lane] = {
+        ...lanes[lane],
+        blockedUntil: until.toISOString(),
+        blockedReason: reason,
+        lastResult: 'limited',
+        lastRunAt: new Date().toISOString(),
+      };
+    });
   }
 
   markResult(lane: string, result: 'done' | 'failed' | 'timeout'): void {
-    this.refresh();
-    this.lanes[lane] = {
-      ...this.lanes[lane],
-      lastResult: result,
-      lastRunAt: new Date().toISOString(),
-    };
-    this.save();
+    this.mutate((lanes) => {
+      lanes[lane] = {
+        ...lanes[lane],
+        lastResult: result,
+        lastRunAt: new Date().toISOString(),
+      };
+    });
   }
 
   unblock(lane?: string): void {
-    this.refresh();
-    const clear = (s?: LaneState) => {
-      if (!s) return;
-      delete s.blockedUntil;
-      delete s.blockedReason;
-      // A manual unblock usually means the window rolled over or the user
-      // swapped credentials — the old gauge is no longer trustworthy.
-      delete s.usage;
-    };
-    if (lane === undefined) {
-      for (const s of Object.values(this.lanes)) clear(s);
-    } else {
-      clear(this.lanes[lane]);
-    }
-    this.save();
+    this.mutate((lanes) => {
+      const clear = (s?: LaneState) => {
+        if (!s) return;
+        delete s.blockedUntil;
+        delete s.blockedReason;
+        // A manual unblock usually means the window rolled over or the user
+        // swapped credentials — the old gauge is no longer trustworthy.
+        delete s.usage;
+      };
+      if (lane === undefined) {
+        for (const s of Object.values(lanes)) clear(s);
+      } else {
+        clear(lanes[lane]);
+      }
+    });
+  }
+
+  /**
+   * Locked read-modify-write: reload from disk inside the lock, apply
+   * `fn` to the fresh lane map, write atomically.
+   */
+  private mutate(fn: (lanes: Record<string, LaneState>) => void): void {
+    withFileLock(this.path, () => {
+      this.load();
+      fn(this.lanes);
+      this.save();
+    });
   }
 
   private save(): void {

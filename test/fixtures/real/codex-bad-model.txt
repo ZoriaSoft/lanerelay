@@ -1,0 +1,18 @@
+Reading additional input from stdin...
+OpenAI Codex v0.163.0
+--------
+workdir: /work/demo
+model: bogus-model-zzz
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 00000000-0000-0000-0000-000000000000
+--------
+user
+Reply with exactly this word and nothing else: OK
+warning: Codex's Linux sandbox uses bubblewrap and needs access to create user namespaces.
+warning: Model metadata for `bogus-model-zzz` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'bogus-model-zzz' model is not supported when using Codex with a ChatGPT account."}}
+ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'bogus-model-zzz' model is not supported when using Codex with a ChatGPT account."}}

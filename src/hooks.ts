@@ -14,8 +14,15 @@ export interface HookVars {
 
 const TEMPLATE = /\{\{\s*(\w+)\s*\}\}/g;
 
-function render(template: string, vars: HookVars): string {
-  return template.replace(TEMPLATE, (_, k: string) => vars[k] ?? '');
+/**
+ * Turn {{var}} into a `${LR_VAR}` shell expansion instead of pasting the
+ * value into the command text. The task string is user/queue input — pasting
+ * it would let `$(...)` or a stray quote run as shell code. A parameter
+ * expansion is never re-parsed, so "{{task}}" inside double quotes stays one
+ * safe word. Unknown names expand to an empty string.
+ */
+export function renderHookCommand(template: string): string {
+  return template.replace(TEMPLATE, (_, k: string) => '${LR_' + k.toUpperCase() + ':-}');
 }
 
 /**
@@ -34,7 +41,7 @@ export async function fireHooks(
     defs.map(async (def) => {
       try {
         if (def.command) {
-          await runCommand(render(def.command, vars), vars);
+          await runCommand(renderHookCommand(def.command), vars);
         }
         if (def.webhook) {
           await postWebhook(def.webhook, vars);
@@ -51,13 +58,13 @@ function runCommand(command: string, vars: HookVars): Promise<void> {
   for (const [k, v] of Object.entries(vars)) {
     env[`LR_${k.toUpperCase()}`] = v;
   }
-  const { promise, resolve, reject } = Promise.withResolvers<void>();
-  const child = execFile('sh', ['-c', command], { env, timeout: 15_000 }, (err) => {
-    if (err) reject(err);
-    else resolve();
+  return new Promise<void>((resolve, reject) => {
+    const child = execFile('sh', ['-c', command], { env, timeout: 15_000 }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+    child.unref();
   });
-  child.unref();
-  return promise;
 }
 
 async function postWebhook(url: string, vars: HookVars): Promise<void> {

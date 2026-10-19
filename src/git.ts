@@ -1,5 +1,11 @@
 import { execFileSync } from 'node:child_process';
 
+/**
+ * lanerelay's own runtime dir never belongs in a handoff: listing its logs,
+ * leases and run records only distracts the next agent.
+ */
+const EXCLUDE = ['--', '.', ':(exclude).lanerelay'];
+
 /** Byte cap applied to the patch when callers don't pass one. */
 export const DEFAULT_DIFF_MAX_BYTES = 8_192;
 
@@ -23,10 +29,10 @@ export function gitDiffSummary(cwd: string): string {
   };
 
   const parts: string[] = [];
-  const stat = run(['diff', '--stat', 'HEAD']).trim();
+  const stat = run(['diff', '--stat', 'HEAD', ...EXCLUDE]).trim();
   if (stat) parts.push(stat);
 
-  const untracked = run(['ls-files', '--others', '--exclude-standard'])
+  const untracked = run(['ls-files', '--others', '--exclude-standard', ...EXCLUDE])
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -52,7 +58,7 @@ export function gitDiffSummary(cwd: string): string {
  */
 export function gitDiffPatch(cwd: string, maxBytes: number = DEFAULT_DIFF_MAX_BYTES): string {
   try {
-    const out = execFileSync('git', ['diff', 'HEAD'], {
+    const out = execFileSync('git', ['diff', 'HEAD', ...EXCLUDE], {
       cwd,
       stdio: ['ignore', 'pipe', 'ignore'],
       maxBuffer: maxBytes + 1024 * 1024,
