@@ -130,6 +130,9 @@ export class RunStore {
   }
 
   get(id: string): RunRecord | null {
+    // Ids are generated as r-<base36>-<hex>; anything with path syntax is
+    // not one of ours and must not escape the runs directory.
+    if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(id) || id.includes('..')) return null;
     const p = this.path(id);
     if (!existsSync(p)) return null;
     return this.readPath(p);

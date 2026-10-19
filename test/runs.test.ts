@@ -147,3 +147,18 @@ describe('RunStore.prune', () => {
     expect(store.prune(0)).toEqual([]);
   });
 });
+
+describe('RunStore.get id validation', () => {
+  it('refuses ids with path syntax instead of reading outside the runs dir', () => {
+    const root = mkdtempSync(join(tmpdir(), 'lr-runid-'));
+    try {
+      const store = new RunStore(join(root, 'runs'));
+      writeFileSync(join(root, 'outside.json'), JSON.stringify({ id: 'outside', attempts: [] }));
+      expect(store.get('../outside')).toBeNull();
+      expect(store.get('/etc/passwd')).toBeNull();
+      expect(store.get('r-abc-123')).toBeNull(); // valid shape, just absent
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
