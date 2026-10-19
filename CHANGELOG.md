@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## Unreleased
+
+### Security
+
+- `{{prompt}}` is quoted for the shell context it sits in. Templates that
+  quoted the slot themselves (`"{{prompt}}"`, `'{{prompt}}'`) let `$(...)`
+  and backticks in the task text or an earlier lane's output run as shell
+  code.
+- `run --resume` rejects run ids with path syntax.
+
+### Docs
+
+- Quickstart installs from source; the package is not on npm yet, so
+  `npm install -g lanerelay` / `npx lanerelay` did not work.
+- Documented the Windows `%LR_PROMPT%` quoting caveat. Added `SECURITY.md`
+  and `CONTRIBUTING.md`.
+
 ## 0.9.0 — 2026-10-19
 
 Renamed to **lanerelay** (was `quota-pilot`). Bins: `lanerelay` and `lr`.
