@@ -39,7 +39,7 @@ describe('runLane', () => {
     const lane: Lane = {
       name: 't',
       kind: 'custom',
-      command: 'printf %s "$LR_PROMPT"',
+      command: 'node -p process.env.LR_PROMPT',
       priority: 0,
       cost: 'free',
       timeoutMinutes: 0,
@@ -48,7 +48,7 @@ describe('runLane', () => {
     };
     const r = await runLane(lane, 'sentinel-prompt-text', { cwd: process.cwd(), tee: false });
     expect(r.exitCode).toBe(0);
-    expect(r.outputTail).toBe('sentinel-prompt-text');
+    expect(r.outputTail.trim()).toBe('sentinel-prompt-text');
   });
 });
 

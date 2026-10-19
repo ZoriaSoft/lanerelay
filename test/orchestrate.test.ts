@@ -49,7 +49,8 @@ function cfg(dir: string, lanes: ReturnType<typeof fakeLane>[], extra = ''): str
 
 const silent = { runOpts: { tee: false } };
 
-describe('runTask', () => {
+// Fake lanes are POSIX shell scripts.
+describe.skipIf(process.platform === 'win32')('runTask', () => {
   it('succeeds on the first lane when it exits 0', async () => {
     const dir = workdir();
     const cfgPath = cfg(dir, [

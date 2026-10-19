@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -57,7 +57,8 @@ async function waitFor(cond: () => boolean, ms = 5_000): Promise<void> {
 
 const readPid = (f: string) => parseInt(readFileSync(f, 'utf8'), 10);
 
-describe('runner: stdin and cancel', () => {
+// Fake lanes are POSIX shell scripts.
+describe.skipIf(process.platform === 'win32')('runner: stdin and cancel', () => {
   it('lane children get no stdin (headless CLIs must not wait on it)', async () => {
     const dir = workdir();
     const started = Date.now();
@@ -136,7 +137,8 @@ describe('state: concurrent writers', () => {
   });
 });
 
-describe('orchestrator: broken lanes', () => {
+// Fake lanes are POSIX shell scripts.
+describe.skipIf(process.platform === 'win32')('orchestrator: broken lanes', () => {
   it('a failing lane is not retried while another waits for its reset', async () => {
     const dir = workdir();
     const flaky = join(dir, 'flaky.sh');
@@ -216,7 +218,7 @@ describe('handoff context', () => {
     git('-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-qm', 'init');
     rmSync(join(dir, 'a.txt'));
     writeFileSync(join(dir, 'new.ts'), 'x');
-    spawnSync('mkdir', ['-p', join(dir, '.lanerelay', 'logs')]);
+    mkdirSync(join(dir, '.lanerelay', 'logs'), { recursive: true });
     writeFileSync(join(dir, '.lanerelay', 'logs', 'x.log'), 'x');
     const s = gitDiffSummary(dir);
     expect(s).toContain('new.ts');

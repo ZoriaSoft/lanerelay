@@ -47,7 +47,8 @@ describe('detectAuthError', () => {
   });
 });
 
-describe('probeLane', () => {
+// Fake lanes are POSIX shell scripts.
+describe.skipIf(process.platform === 'win32')('probeLane', () => {
   it('classifies a clean exit as available and marks done', async () => {
     const dir = tmpdir2();
     const lane = fakeLane(dir, 'a', 'OK', 0);

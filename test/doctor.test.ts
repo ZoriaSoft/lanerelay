@@ -29,7 +29,7 @@ describe('resolveExecutable', () => {
   it('finds a name on PATH and a relative file, misses ghosts', () => {
     const d = dir();
     writeFileSync(join(d, 'agent.sh'), '#!/bin/sh\n');
-    expect(resolveExecutable('sh', d)).toBe('path');
+    expect(resolveExecutable('node', d)).toBe('path');
     expect(resolveExecutable('./agent.sh', d)).toBe('file');
     expect(resolveExecutable('./nope.sh', d)).toBeNull();
     expect(resolveExecutable('definitely-not-a-real-binary-zz', d)).toBeNull();
@@ -41,7 +41,7 @@ describe('doctorChecks', () => {
     const d = dir();
     writeFileSync(
       join(d, 'lanerelay.yaml'),
-      cfg(`  - name: main\n    kind: claude\n    command: "sh -c 'echo {{prompt}}'"\n`),
+      cfg(`  - name: main\n    kind: claude\n    command: "node --version {{prompt}}"\n`),
     );
     const checks = doctorChecks({ cwd: d });
     const failures = checks.filter((c) => c.status === 'fail');
@@ -73,7 +73,7 @@ describe('doctorChecks', () => {
     const d = dir();
     writeFileSync(
       join(d, 'lanerelay.yaml'),
-      cfg(`  - name: silent\n    kind: claude\n    command: "sh -c 'echo hi'"\n`),
+      cfg(`  - name: silent\n    kind: claude\n    command: "node --version"\n`),
     );
     // loadConfig enforces the slot → the config check carries the message
     const c = doctorChecks({ cwd: d }).find((x) => x.name === 'config')!;
@@ -85,7 +85,7 @@ describe('doctorChecks', () => {
     const d = dir();
     writeFileSync(
       join(d, 'lanerelay.yaml'),
-      cfg(`  - name: main\n    kind: claude\n    command: "sh -c 'echo {{prompt}}'"\n`),
+      cfg(`  - name: main\n    kind: claude\n    command: "node --version {{prompt}}"\n`),
     );
     mkdirSync(join(d, '.lanerelay'), { recursive: true });
     writeFileSync(join(d, '.lanerelay', 'state.json'), '{not json');
@@ -96,7 +96,7 @@ describe('doctorChecks', () => {
     const d = dir();
     writeFileSync(
       join(d, 'lanerelay.yaml'),
-      cfg(`  - name: main\n    kind: claude\n    command: "sh -c 'echo {{prompt}}'"\n`),
+      cfg(`  - name: main\n    kind: claude\n    command: "node --version {{prompt}}"\n`),
     );
     const leases = join(d, '.lanerelay', 'leases');
     mkdirSync(leases, { recursive: true });
