@@ -15,13 +15,13 @@
     "fallback",
     "handoff"
   ],
-  "homepage": "https://github.com/ZoriaSoft/quota-pilot#readme",
+  "homepage": "https://github.com/ZoriaSoft/lanerelay#readme",
   "bugs": {
-    "url": "https://github.com/ZoriaSoft/quota-pilot/issues"
+    "url": "https://github.com/ZoriaSoft/lanerelay/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ZoriaSoft/quota-pilot.git"
+    "url": "git+https://github.com/ZoriaSoft/lanerelay.git"
   },
   "license": "MIT",
   "type": "commonjs",
