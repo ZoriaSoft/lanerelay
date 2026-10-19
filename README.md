@@ -25,11 +25,14 @@ lanerelay run "fix the failing test in src/parser"
 
 ## Quickstart
 
-Needs Node 20+ and at least one agent CLI that is already logged in.
+Needs Node 20+, git, and at least one agent CLI that is already logged in.
+lanerelay is not published to npm yet, so install it from source:
 
 ```bash
-npm install -g lanerelay        # installs `lanerelay` and the short alias `lr`
-cd your-repo
+git clone https://github.com/ZoriaSoft/lanerelay.git
+cd lanerelay && npm ci && npm run build && npm link   # puts `lanerelay` and `lr` on PATH
+
+cd /path/to/your-repo
 lanerelay init                  # writes lanerelay.yaml (claude/codex/gemini lanes)
 lanerelay doctor                # checks the config and that each lane's CLI is on PATH
 lanerelay run "fix the failing test in src/parser"
@@ -37,8 +40,8 @@ lanerelay status                # which lanes are blocked, until when, and why
 ```
 
 Edit the lane commands in `lanerelay.yaml` to match the CLIs you actually
-have; delete lanes you don't use. `npx lanerelay …` works too without a
-global install.
+have; delete lanes you don't use. Without `npm link`, run
+`node /path/to/lanerelay/dist/cli.js …` instead.
 
 A lane is a shell command with a `{{prompt}}` slot. Headless forms that work
 with current CLI versions:
@@ -260,7 +263,11 @@ exported on POSIX, so wrapper scripts can read it instead of the argv slot.
   expires with its window (session 8h, daily 36h, weekly 9d, monthly 35d,
   unlabeled 24h).
 - POSIX shells are the tested path. Windows support (`cmd /c`, prompt in
-  `%LR_PROMPT%`) is covered by unit tests only.
+  `%LR_PROMPT%`) is covered by unit tests only. cmd.exe expands
+  `%LR_PROMPT%` before it parses the line, so a prompt containing `"`
+  next to `&`, `|` or `>` can break out of the quotes; on Windows prefer a
+  lane command that is a wrapper script reading `LR_PROMPT` from the
+  environment.
 
 ## Real-CLI validation
 

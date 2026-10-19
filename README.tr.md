@@ -16,11 +16,14 @@ ve yazdıklarını okur.
 
 ## Hızlı başlangıç
 
-Node 20+ ve oturumu açık en az bir ajan CLI'ı gerekir.
+Node 20+, git ve oturumu açık en az bir ajan CLI'ı gerekir. lanerelay henüz
+npm'de yayınlanmadı; kaynaktan kurun:
 
 ```bash
-npm install -g lanerelay        # `lanerelay` ve kısa adı `lr` kurulur
-cd projeniz
+git clone https://github.com/ZoriaSoft/lanerelay.git
+cd lanerelay && npm ci && npm run build && npm link   # `lanerelay` ve `lr` PATH'e eklenir
+
+cd /projenizin/yolu
 lanerelay init                  # lanerelay.yaml yazar (claude/codex/gemini hatları)
 lanerelay doctor                # config'i ve her hattın CLI'ının PATH'te olduğunu kontrol eder
 lanerelay run "src/parser içindeki bozuk testi düzelt"
@@ -28,7 +31,8 @@ lanerelay status                # hangi hat ne zamana kadar, neden engelli
 ```
 
 `lanerelay.yaml` içindeki hat komutlarını elinizdeki CLI'lara göre
-düzenleyin. Kurulum yapmadan `npx lanerelay …` da çalışır.
+düzenleyin. `npm link` kullanmazsanız `node /yol/lanerelay/dist/cli.js …`
+ile çalıştırın.
 
 ## Farkı ne
 
@@ -100,7 +104,10 @@ birden fazla ajan koşturmak.
   desenleri kaynak koddan/dokümandan, canlı denemeden değil.
 - Dilimsiz saat ("try again at 6:41 AM") makinenin yerel saatiyle okunur.
 - Devir metindir, oturum durumu değildir.
-- Windows yolu yalnızca birim testleriyle kapsanıyor.
+- Windows yolu yalnızca birim testleriyle kapsanıyor. cmd.exe `%LR_PROMPT%`'u
+  satırı ayrıştırmadan önce açtığı için `"` ile birlikte `&`, `|` veya `>`
+  içeren bir istem tırnaklardan taşabilir; Windows'ta `LR_PROMPT`'u ortamdan
+  okuyan bir sarmalayıcı betik kullanın.
 
 Detaylı yapılandırma ve geliştirme notları için `README.md`'ye bakın. MIT
 lisansı.

@@ -3,7 +3,7 @@
 # `bun build --compile`. Bundles src/cli.ts + commander + yaml directly;
 # no `npm run build` step required.
 #
-#   scripts/compile.sh                  # linux-x64 only (the sandbox default)
+#   scripts/compile.sh                  # linux-x64 only (default)
 #   scripts/compile.sh all              # linux/darwin x64+arm64, windows x64
 #   scripts/compile.sh linux-x64 darwin-arm64
 #
