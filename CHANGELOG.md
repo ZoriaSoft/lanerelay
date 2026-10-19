@@ -1,6 +1,10 @@
-# CHANGELOG
+# Changelog
 
-## Unreleased
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+[Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
 
 ### Security
 
@@ -17,7 +21,7 @@
 - Documented the Windows `%LR_PROMPT%` quoting caveat. Added `SECURITY.md`
   and `CONTRIBUTING.md`.
 
-## 0.9.0 — 2026-10-19
+## [0.9.0] - 2026-10-19
 
 Renamed to **lanerelay** (was `quota-pilot`). Bins: `lanerelay` and `lr`.
 Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
@@ -32,7 +36,7 @@ Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
   group, so the terminal's SIGINT never reached them). SIGINT/SIGTERM/SIGHUP
   now stop every running lane group (SIGTERM, SIGKILL after 3 s), and the run
   record stays `interrupted` instead of being overwritten as `failed`.
-- A lane that failed or timed out was retried every round while the other
+- A lane that failed or timed out was retried on every pass of the chain while the other
   lanes waited for their reset. It is now tried once per run.
 - Handoff prompts nested: Codex echoes its prompt, so each handoff carried
   the previous one. Tails now drop echoed prompts and ANSI codes and keep
@@ -66,7 +70,7 @@ Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
   SIGINT end-to-end); concurrent state writers; hook injection; handoff
   tails. The suite pins `TZ=UTC`.
 
-## 0.8.0 — 2026-10-18 (round 8)
+## [0.8.0] - 2026-10-18
 
 ### Added
 
@@ -97,7 +101,7 @@ Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
 
 - `package.json` version now tracks the CLI version (0.8.0).
 
-## 0.7.0 — 2026-10-18 (round 7)
+## [0.7.0] - 2026-10-18
 
 ### Added
 
@@ -130,7 +134,7 @@ Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
 - `watch --once` no longer silently abandons deferred items — it prints how
   many are left and when the first wakes.
 
-## 0.6.0 — 2026-10-18 (round 6)
+## [0.6.0] - 2026-10-18
 
 ### Added
 
@@ -145,7 +149,7 @@ Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
 
 - `test/smoke.sh` printed its final line twice (duplicate `printf`).
 
-## 0.5.0 — 2026-10-18 (round 5)
+## [0.5.0] - 2026-10-18
 
 ### Added
 
@@ -176,7 +180,7 @@ Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
   watcher learned a block would retry the dead lane anyway. The store now
   reloads when the file's mtime changes (best-effort last-writer-wins).
 
-## 0.4.0 — 2026-10-18 (round 4)
+## [0.4.0] - 2026-10-18
 
 ### Added
 
@@ -202,7 +206,7 @@ Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
   an invalid pattern fails fast with the lane name instead of crashing on
   the first lane attempt.
 
-## 0.3.0 — 2026-10-18 (round 3)
+## [0.3.0] - 2026-10-18
 
 ### Added
 
@@ -231,7 +235,7 @@ Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
   not fire `exit` under a signal's default disposition, so records now hook
   the signals directly and exit with the conventional code.
 
-## 0.2.0 — 2026-10-18 (round 2)
+## [0.2.0] - 2026-10-18
 
 ### Added
 
@@ -261,7 +265,7 @@ Config file `lanerelay.yaml`, runtime dir `.lanerelay/`, env vars `LR_*`
   open (e.g. `sh -c 'sleep 60'`): finish now resolves on `exit` after a
   short grace period, and timeouts try a process-group kill first.
 
-## 0.1.0 — 2026-10-18 (round 1)
+## [0.1.0] - 2026-10-18
 
 Initial implementation.
 

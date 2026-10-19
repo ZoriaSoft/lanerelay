@@ -31,6 +31,9 @@ before opening a PR.
   can stop them.
 - Runtime dependencies are `commander` and `yaml` only.
 - Commands never touch the network except webhook hooks.
+- `src/` stays compatible with Node.js 20 (no 22-only APIs).
+- Fixtures and examples use fake values: no real paths, hostnames, tokens
+  or user data.
 - Keep `README.md` and `README.tr.md` in sync for user-facing features.
 
 ## Security issues
