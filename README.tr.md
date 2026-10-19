@@ -104,10 +104,14 @@ birden fazla ajan koşturmak.
   desenleri kaynak koddan/dokümandan, canlı denemeden değil.
 - Dilimsiz saat ("try again at 6:41 AM") makinenin yerel saatiyle okunur.
 - Devir metindir, oturum durumu değildir.
-- Windows yolu yalnızca birim testleriyle kapsanıyor. cmd.exe `%LR_PROMPT%`'u
-  satırı ayrıştırmadan önce açtığı için `"` ile birlikte `&`, `|` veya `>`
-  içeren bir istem tırnaklardan taşabilir; Windows'ta `LR_PROMPT`'u ortamdan
-  okuyan bir sarmalayıcı betik kullanın.
+- Windows'ta `.exe`'ye çözülen sade bir komut kabuksuz başlatılır ve istem
+  tek bir argüman olarak geçer. cmd sözdizimi kullanan ya da `.cmd`/`.bat`
+  (ör. npm shim'leri) ile başlayan komutlar `cmd /d /v:on /s /c` altında
+  çalışır; istem, cmd satırı ayrıştırdıktan sonra gecikmeli genişletmeyle
+  eklenir, yani istemdeki tırnak, `&`, `|`, `>`, `%` ve satır sonları
+  yorumlanmaz. Bu komutlarda düz `!` karakteri `^^!` olarak yazılmalı.
+  İstem aktarımı gerçek cmd.exe ile test edildi; sahte hatlı uçtan uca
+  testler kabuk betiği olduğu için yalnızca POSIX'te çalışır.
 
 Detaylı yapılandırma ve geliştirme notları için `README.md`'ye bakın. MIT
 lisansı.

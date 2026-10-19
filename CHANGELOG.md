@@ -13,6 +13,19 @@ All notable changes to this project are documented here. The format follows
   and backticks in the task text or an earlier lane's output run as shell
   code.
 - `run --resume` rejects run ids with path syntax.
+- Windows: the prompt no longer goes through cmd.exe parsing. `%LR_PROMPT%`
+  was expanded before cmd parsed the line, so a prompt with `"` and `&`
+  could run commands, and line breaks cut the prompt short. Plain `.exe`
+  lanes now start without a shell; other commands run under
+  `cmd /d /v:on /s /c` and read the prompt via delayed expansion, also
+  through npm `.cmd` shims.
+
+### Fixed
+
+- The lockfile lists the esbuild/rollup binaries for every platform, so
+  `npm ci` works on Windows and macOS.
+- Tests that do not need a POSIX shell run on Windows; the fake-lane suites
+  are skipped there.
 
 ### Docs
 

@@ -215,9 +215,15 @@ Lane command templates substitute `{{prompt}}` inline under `sh -c` on POSIX,
 quoted for the context the slot sits in, so `{{prompt}}`, `"{{prompt}}"`
 and `'{{prompt}}'` all pass the text through literally (no `$(...)` or
 backtick expansion);
-on Windows they run via `cmd /c` and the prompt arrives in `%LR_PROMPT%`
-(cmd quoting is too fragile for inline substitution). `LR_PROMPT` is also
-exported on POSIX, so wrapper scripts can read it instead of the argv slot.
+on Windows a plain command whose program resolves to an `.exe` is started
+directly, without a shell, and the prompt is passed as one argument.
+Commands that use cmd syntax (`&&`, `>`, `%VAR%`, ...) or start a
+`.cmd`/`.bat` file (such as npm shims) run under `cmd /d /v:on /s /c`, with
+the slot expanded from a delayed-expansion variable after cmd has parsed the
+line, so quotes, `&`, `|`, `>`, `%` and line breaks in the prompt are never
+interpreted. With delayed expansion on, a literal `!` in such a command must
+be written `^^!`. `LR_PROMPT` is exported on every platform, so wrapper
+scripts can read it instead of the argv slot.
 
 ## Limits (the honest list)
 
@@ -262,12 +268,14 @@ exported on POSIX, so wrapper scripts can read it instead of the argv slot.
 - Usage gauges are only used when a lane prints one, and each reading
   expires with its window (session 8h, daily 36h, weekly 9d, monthly 35d,
   unlabeled 24h).
-- POSIX shells are the tested path. Windows support (`cmd /c`, prompt in
-  `%LR_PROMPT%`) is covered by unit tests only. cmd.exe expands
-  `%LR_PROMPT%` before it parses the line, so a prompt containing `"`
-  next to `&`, `|` or `>` can break out of the quotes; on Windows prefer a
-  lane command that is a wrapper script reading `LR_PROMPT` from the
-  environment.
+- POSIX is the main tested platform. On Windows, prompt passing is tested
+  against real cmd.exe (direct `.exe` lanes, cmd syntax, plain batch files
+  and npm-style `.cmd` shims), but the end-to-end suites with fake lanes
+  are shell scripts and only run on POSIX.
+- On Windows the first word of a command decides how it starts. A batch
+  file that is called later in a compound command (`a && b.cmd {{prompt}}`)
+  re-reads its arguments; point such commands at a wrapper that reads
+  `LR_PROMPT` instead.
 
 ## Real-CLI validation
 

@@ -22,6 +22,8 @@ reports within a few days.
 - Agent CLIs you run as lanes can modify the working tree; that is their
   job, and sandboxing them is up to their own settings.
 
-Known limit: on Windows, `cmd.exe` expands `%LR_PROMPT%` before parsing, so
-prefer wrapper scripts that read `LR_PROMPT` from the environment (see the
-README limits).
+On Windows, lane prompts never reach cmd.exe parsing: plain `.exe`
+commands start without a shell, and everything else receives the prompt
+through delayed expansion (see the README). A batch file invoked later in a
+compound command re-reads its arguments, so point such commands at a
+wrapper that reads `LR_PROMPT`.
