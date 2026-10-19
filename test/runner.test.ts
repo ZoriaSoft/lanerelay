@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildSpawn, runLane, shellQuote } from '../src/runner.js';
+import { buildSpawn, runLane, shellQuote, substitutePosix } from '../src/runner.js';
+import { spawnSync } from 'node:child_process';
 import type { Lane } from '../src/types.js';
 
 describe('shellQuote', () => {
@@ -48,5 +49,28 @@ describe('runLane', () => {
     const r = await runLane(lane, 'sentinel-prompt-text', { cwd: process.cwd(), tee: false });
     expect(r.exitCode).toBe(0);
     expect(r.outputTail).toBe('sentinel-prompt-text');
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('prompt slot quoting contexts', () => {
+  const nasty = 'fix it $(echo PWNED) `echo PWNED` it\'s "quoted" \\ back $HOME';
+  const runEcho = (template: string): string => {
+    const spec = buildSpawn(template, nasty, 'linux');
+    return spawnSync(spec.file, spec.args, { encoding: 'utf8' }).stdout;
+  };
+
+  it('passes the prompt verbatim whether the slot is bare, double- or single-quoted', () => {
+    for (const t of ['printf %s {{prompt}}', 'printf %s "{{prompt}}"', "printf %s '{{prompt}}'"]) {
+      expect(runEcho(t)).toBe(nasty);
+    }
+  });
+
+  it('keeps surrounding text inside the user quotes', () => {
+    expect(runEcho('printf %s "task: {{prompt}} (end)"')).toBe(`task: ${nasty} (end)`);
+    expect(runEcho("printf %s 'task: {{prompt}} (end)'")).toBe(`task: ${nasty} (end)`);
+  });
+
+  it('an escaped quote outside quotes does not open a string', () => {
+    expect(substitutePosix('echo \\" {{prompt}}', 'x')).toBe("echo \\\" 'x'");
   });
 });

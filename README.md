@@ -208,7 +208,10 @@ become shell expansions of the matching `LR_*` env vars (`{{task}}` →
 double quotes as in the example. Webhooks receive
 `{"event","lane","task","status","resetAt","ts"}`.
 
-Lane command templates substitute `{{prompt}}` inline under `sh -c` on POSIX;
+Lane command templates substitute `{{prompt}}` inline under `sh -c` on POSIX,
+quoted for the context the slot sits in, so `{{prompt}}`, `"{{prompt}}"`
+and `'{{prompt}}'` all pass the text through literally (no `$(...)` or
+backtick expansion);
 on Windows they run via `cmd /c` and the prompt arrives in `%LR_PROMPT%`
 (cmd quoting is too fragile for inline substitution). `LR_PROMPT` is also
 exported on POSIX, so wrapper scripts can read it instead of the argv slot.

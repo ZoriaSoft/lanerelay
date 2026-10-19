@@ -28,8 +28,52 @@ export function buildSpawn(template: string, prompt: string, platform: NodeJS.Pl
     const command = template.replace(slot, '"%LR_PROMPT%"');
     return { file: 'cmd', args: ['/d', '/s', '/c', command], command };
   }
-  const command = template.replace(slot, () => shellQuote(prompt));
+  const command = substitutePosix(template, prompt);
   return { file: 'sh', args: ['-c', command], command };
+}
+
+/**
+ * Replace every {{prompt}} slot with a literal that is safe for the quoting
+ * context the slot sits in. Users naturally write `"{{prompt}}"` or
+ * `'{{prompt}}'`; pasting a single-quoted word there would end up inside
+ * double quotes (where `$(...)` and backticks still run) or close the
+ * user's own single quotes. Context per slot:
+ * - unquoted: `'...'` (shellQuote)
+ * - inside "...": backslash-escape `\ " $ \``
+ * - inside '...': close the quote, emit shellQuote, reopen
+ */
+export function substitutePosix(template: string, prompt: string): string {
+  const slot = /\{\{\s*prompt\s*\}\}/y;
+  let out = '';
+  let mode: 'none' | 'single' | 'double' = 'none';
+  for (let i = 0; i < template.length; ) {
+    slot.lastIndex = i;
+    const m = slot.exec(template);
+    if (m) {
+      if (mode === 'none') out += shellQuote(prompt);
+      else if (mode === 'double') out += prompt.replace(/[\\"$`]/g, (c) => '\\' + c);
+      else out += "'" + shellQuote(prompt) + "'";
+      i += m[0].length;
+      continue;
+    }
+    const c = template[i];
+    if (mode === 'single') {
+      if (c === "'") mode = 'none';
+    } else if (c === '\\' && i + 1 < template.length) {
+      out += c + template[i + 1];
+      i += 2;
+      continue;
+    } else if (mode === 'double') {
+      if (c === '"') mode = 'none';
+    } else if (c === "'") {
+      mode = 'single';
+    } else if (c === '"') {
+      mode = 'double';
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
 }
 
 export interface RunOptions {
