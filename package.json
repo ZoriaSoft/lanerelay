@@ -24,13 +24,18 @@
     "url": "git+https://github.com/ZoriaSoft/lanerelay.git"
   },
   "license": "MIT",
+  "author": "ZoriaSoft",
   "type": "commonjs",
   "bin": {
     "lanerelay": "dist/cli.js",
     "lr": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "README.tr.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20"
@@ -42,7 +47,8 @@
     "dev": "tsx src/cli.ts",
     "compile": "sh scripts/compile.sh all",
     "prepack": "npm run build",
-    "smoke": "sh test/smoke.sh"
+    "smoke": "sh test/smoke.sh",
+    "prepublishOnly": "npm run typecheck && npm run build && npm test"
   },
   "dependencies": {
     "commander": "^14.0.0",

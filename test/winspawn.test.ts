@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
+import { afterAll, describe, expect, it } from 'vitest';
+import { mkdtempSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildSpawn, runLane } from '../src/runner.js';
@@ -102,6 +102,7 @@ describe('buildWindowsSpawn', () => {
 // Real cmd.exe: only meaningful on Windows.
 describe.skipIf(process.platform !== 'win32')('windows: prompt never reaches cmd.exe parsing', () => {
   const dir = mkdtempSync(join(tmpdir(), 'lr-win-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(join(dir, 'echo.js'), 'process.stdout.write(JSON.stringify(process.argv.slice(2)));\n');
   writeFileSync(join(dir, 'plain.cmd'), '@echo off\r\nnode "%~dp0echo.js" %*\r\n');
   // Same structure as the shims npm generates for package bins.
